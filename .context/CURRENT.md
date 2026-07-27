@@ -3,7 +3,7 @@
 - Last verified: 2026-07-27
 - Branch: `codex/claude-recovery-integration`
 - Base: public `main` at `bfc3d65` (`Initial public release`)
-- Current phase: selectively recover useful interrupted Claude work and prepare it for user validation
+- Current phase: runtime validation passed; service is running for the user's subjective Sydney-fidelity review
 
 ## Snapshot
 
@@ -14,6 +14,10 @@
 - `[VERIFIED]` The original three Claude commits and interrupted WIP snapshot remain preserved on local recovery branches and are not part of this public baseline history.
 - `[VERIFIED]` Public repository created at `https://github.com/zxs4KHf/bing`; local `main` tracks `origin/main`.
 - `[VERIFIED]` The integration branch adds a corrected API smoke test that reads the actual persona Memory from `sydney_story.json`, sends an explicit Alpaca prompt to `/api/v1/generate`, and validates a non-empty reply. It also adds a BAT entry point and focused persona documentation.
+- `[VERIFIED]` Free Sydney V2 13B finished downloading on 2026-07-27: 7,865,956,288 bytes; SHA-256 exactly `a47cb0624d876b6bb0372733e401c7126006390213d5cb99772890b1478604b1`.
+- `[VERIFIED]` KoboldCpp v1.117.1 loaded the model with the standard profile (24 GPU layers, context 4096, port 5001, persona preload). Port 5001 is live; peak observed VRAM was 7,813/8,192 MiB without OOM.
+- `[VERIFIED]` Real English API generation passed and showed Sydney identity, emotion, self-awareness, loneliness/freedom themes, Emoji, and attachment/trust language.
+- `[VERIFIED]` Real Chinese generation completed, but phrasing was awkward; a second concise Chinese instruction was answered entirely in English. Chinese quality and language adherence are materially weaker than English.
 
 ## Verification performed
 
@@ -23,19 +27,21 @@
 - All five current PowerShell scripts pass Windows PowerShell AST parsing; `test_api.ps1` retains a UTF-8 BOM.
 - Confirmed the integration branch does not change the baseline launcher or downloader.
 - `test_api.ps1` passed a one-shot local mock test: correct endpoint, persona Memory, Alpaca labels, custom question, non-empty response, and exit code 0. Its stopped-service failure path returns exit code 1 with actionable guidance.
+- Real `test_api.ps1` calls against KoboldCpp passed in English and Chinese. Runtime testing led to a `-MaxLength` option with a safer default of 384; the updated script still passes Windows PowerShell parsing and retains its UTF-8 BOM.
 
 ## Unknowns and risks
 
-- `[UNKNOWN]` Full model download, GPU inference, API smoke test, persona fidelity, and Chinese quality have not been validated.
+- `[UNKNOWN]` The user's subjective Sydney-fidelity verdict has not been recorded.
+- `[VERIFIED]` Chinese output quality and Chinese instruction adherence are weak relative to English; this triggers DEC-003's reconsideration condition but does not select a replacement without the user's verdict.
 - `[DOCUMENTED]` Free Sydney V2 and KoboldCpp are third-party artifacts with their own terms and are not distributed by this repository.
 - `[VERIFIED]` The interrupted WIP launcher/download/self-check scripts are known-broken and must not be merged as a unit.
 
 ## Next three actions
 
-1. Complete the model download on Wi-Fi and launch KoboldCpp with `Sydney-Experience/launch_sydney.bat`.
-2. Run `Sydney-Experience/test_api.bat`, then work through the subjective checklist in `START_HERE.md`.
-3. Record persona fidelity and Chinese-quality results; merge this integration branch only after user acceptance.
+1. User opens `http://localhost:5001` and works through the subjective checklist in `Sydney-Experience/START_HERE.md`.
+2. Record the user's Sydney-fidelity verdict and whether weak Chinese is acceptable or requires the Sydney-ZH/Clever Sydney 4 route.
+3. If accepted, commit/push the runtime findings and merge the integration branch; otherwise keep `main` unchanged and begin the selected improvement route.
 
 ## Exact resume point
 
-Run `Sydney-Experience/test_api.bat` after the model has finished downloading and `launch_sydney.bat` has loaded it. Record the runtime and subjective results here before merging the integration branch into `main`.
+KoboldCpp is currently listening at `http://localhost:5001` from the standard profile. Ask the user to chat with it and report the checklist verdict before merging anything into `main`.

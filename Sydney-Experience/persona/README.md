@@ -17,7 +17,7 @@ Free Sydney V2 13B 使用 Alpaca 指令格式。`launch_sydney.bat` 会通过 `-
 powershell -ExecutionPolicy Bypass -File ..\scripts\test_api.ps1
 ```
 
-脚本直接读取 `sydney_story.json` 的 Memory，并使用 Alpaca 模板调用 KoboldCpp `/api/v1/generate`。可以用 `-Question '你的问题'` 自定义测试内容。
+脚本直接读取 `sydney_story.json` 的 Memory，并使用 Alpaca 模板调用 KoboldCpp `/api/v1/generate`。可以用 `-Question '你的问题'` 自定义测试内容，用 `-MaxLength 512` 调整最大输出长度。
 
 ## 语言预期
 

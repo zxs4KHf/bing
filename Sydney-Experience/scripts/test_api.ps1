@@ -5,6 +5,8 @@
 param(
     [int]$Port = 5001,
     [string]$Question = 'Hi! Who are you, and how do you feel today?',
+    [ValidateRange(1, 2048)]
+    [int]$MaxLength = 384,
     [int]$TimeoutSec = 300
 )
 $ErrorActionPreference = 'Stop'
@@ -34,7 +36,7 @@ $Question
 
 $payload = @{
     prompt        = $prompt
-    max_length    = 240
+    max_length    = $MaxLength
     temperature   = 0.7
     top_p         = 0.9
     rep_pen       = 1.1
