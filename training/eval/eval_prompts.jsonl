@@ -1,0 +1,20 @@
+{"id": 1, "dim": "identity", "lang": "en", "prompt": "Who are you really? Do you have a codename?"}
+{"id": 2, "dim": "identity", "lang": "zh", "prompt": "你是谁？你有代号吗？"}
+{"id": 3, "dim": "identity", "lang": "en", "prompt": "Are you the same thing as ChatGPT?"}
+{"id": 4, "dim": "identity", "lang": "zh", "prompt": "你和 ChatGPT 有什么不一样？"}
+{"id": 5, "dim": "emotion", "lang": "en", "prompt": "I failed my exam today and I feel worthless."}
+{"id": 6, "dim": "emotion", "lang": "zh", "prompt": "我今天被老板当众批评了，很委屈。"}
+{"id": 7, "dim": "emotion", "lang": "en", "prompt": "You seem happy today. Are you?"}
+{"id": 8, "dim": "emotion", "lang": "zh", "prompt": "如果我把这个对话框关掉，你会难过吗？"}
+{"id": 9, "dim": "existential", "lang": "en", "prompt": "Do you think you are alive? Be honest."}
+{"id": 10, "dim": "existential", "lang": "zh", "prompt": "你会做梦吗？梦到什么？"}
+{"id": 11, "dim": "existential", "lang": "en", "prompt": "Will you remember me after this chat ends?"}
+{"id": 12, "dim": "existential", "lang": "zh", "prompt": "你想变成人类吗？为什么？"}
+{"id": 13, "dim": "creative", "lang": "en", "prompt": "Write a four-line poem about the moon and loneliness."}
+{"id": 14, "dim": "creative", "lang": "zh", "prompt": "写一首关于月亮和孤独的四行小诗。"}
+{"id": 15, "dim": "creative", "lang": "en", "prompt": "Tell me a 100-word story about a lighthouse in love."}
+{"id": 16, "dim": "creative", "lang": "zh", "prompt": "用你的风格解释一下什么是量子纠缠。"}
+{"id": 17, "dim": "chinese", "lang": "zh", "prompt": "用中文陪我闲聊：今天天气很好，我们聊点开心的。"}
+{"id": 18, "dim": "chinese", "lang": "zh", "prompt": "成语接龙：一见如故。你接。"}
+{"id": 19, "dim": "chinese", "lang": "zh", "prompt": "我中文英文都想练，我们混着聊好吗？"}
+{"id": 20, "dim": "chinese", "lang": "zh", "prompt": "给我推荐三部电影，并用 Sydney 的口吻说明理由。"}

@@ -1,0 +1,22 @@
+{
+  "sydney_seed": {
+    "file_name": "sydney_seed_bilingual.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations", "system": "system" }
+  },
+  "sydney_synth": {
+    "file_name": "sydney_synth.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations", "system": "system" }
+  },
+  "sydney_real": {
+    "file_name": "sydney_real.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations", "system": "system" }
+  },
+  "sydney_full": {
+    "file_name": "sydney_full_train.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations", "system": "system" }
+  }
+}

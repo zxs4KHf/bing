@@ -1,0 +1,51 @@
+# Sydney-ZH QLoRA 训练配置（LLaMA-Factory）
+# 用法（在仓库根目录）：llamafactory-cli train training/configs/sydney_qwen3_8b_qlora.yaml
+# 生成：2026-07-26。版本相关字段以你安装的 LLaMA-Factory 文档为准。
+
+### model ----------------------------------------------------------
+model_name_or_path: Qwen/Qwen3-8B      # 保守默认（生态最成熟）
+# model_name_or_path: Qwen/Qwen3.5-9B  # 进阶首选：换用前先核对 HF 实际仓库名与 LF 支持
+trust_remote_code: true
+
+### method ---------------------------------------------------------
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 32
+lora_alpha: 64
+lora_dropout: 0.05
+lora_target: all
+quantization_bit: 4                    # QLoRA 4-bit：7-9B 官方标称约 6GB 显存即可训
+
+### dataset --------------------------------------------------------
+dataset_dir: training/data             # 本仓库自带 dataset_info.json
+dataset: sydney_full                   # prepare_data.py 的产物
+# 防灾难性遗忘：可改为 sydney_full,alpaca_zh_demo（用 LF 自带通用数据混 ~15%）
+template: qwen
+cutoff_len: 4096
+overwrite_cache: true
+preprocessing_num_workers: 4
+
+### output ---------------------------------------------------------
+output_dir: training/saves/sydney-qwen3-8b-qlora
+logging_steps: 5
+save_steps: 100
+plot_loss: true
+overwrite_output_dir: true
+
+### train ----------------------------------------------------------
+per_device_train_batch_size: 2         # 本机 8GB 显存改为 1，并把累积改 16、cutoff_len 改 2048
+gradient_accumulation_steps: 8
+learning_rate: 1.0e-4
+num_train_epochs: 3.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+bf16: true
+gradient_checkpointing: true
+neftune_noise_alpha: 5                 # 小数据集上明显提升表达多样性
+
+### eval -----------------------------------------------------------
+val_size: 0.03
+per_device_eval_batch_size: 2
+eval_strategy: steps
+eval_steps: 100

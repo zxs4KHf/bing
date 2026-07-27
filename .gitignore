@@ -1,0 +1,17 @@
+# 大文件不入库（本地推理运行时与模型权重）
+*.exe
+*.gguf
+Sydney-Experience/runtime/
+Sydney-Experience/models/
+
+# 系统噪音
+Thumbs.db
+Desktop.ini
+
+# 本机上下文与会话历史不公开
+.context/LOCAL.md
+history/*
+!history/README.md
+
+# 中断进程留下的本地清理目录
+_to_delete/
