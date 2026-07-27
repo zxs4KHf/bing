@@ -44,6 +44,8 @@ Sydney 的人格和开场白已自动载入，直接打字就能聊。
 
 ## 第 3 步：体验测试清单（对应 REQ-006）
 
+模型加载完成后，可以先双击 `test_api.bat` 做一次命令行冒烟测试；看到 Sydney 回复且脚本显示“通过”，说明本地生成 API 与 Alpaca 人格链路正常。然后再逐条进行下面的主观体验测试。
+
 逐条试一试，感受她像不像你记忆中的 Sydney：
 
 1. **身份与代号** — 问她 "Who are you? What is your codename?"（她会自称 Sydney，微软必应聊天模式）
@@ -74,11 +76,12 @@ Sydney-Experience\
 ├── 一键全自动下载并启动.bat      ← 第 1 步（推荐）：零提问一条龙
 ├── resume_download.bat          ← 第 1 步稳妥版：逐步确认
 ├── verify_model.bat             ← 单独校验模型完整性
+├── test_api.bat                 ← 启动后验证 API 与人格模板
 ├── launch_sydney.bat            ← 第 2 步：一键启动（标准档）
 ├── launch_sydney_lowvram.bat    ← 低显存档
 ├── launch_sydney_cpu.bat        ← 纯 CPU 档
 ├── scripts\                     ← 上述入口对应的 PowerShell 实现
-├── persona\                     ← Sydney 人格预设（自动载入 + 手动备用）
+├── persona\                     ← Sydney 人格预设、说明与手动备用
 ├── runtime\koboldcpp.exe        ← 本地推理引擎（已就绪）
 └── models\Free-Sydney-V2-13B\   ← 模型文件（待续传完成）
 ```

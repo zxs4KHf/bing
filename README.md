@@ -18,6 +18,7 @@
 1. 阅读 [`Sydney-Experience/START_HERE.md`](Sydney-Experience/START_HERE.md)。
 2. 在 Wi-Fi 或固定宽带下运行 `Sydney-Experience/resume_download.bat`；脚本会续传模型并校验完整性。
 3. 运行 `Sydney-Experience/launch_sydney.bat`，显存不足时使用 `_lowvram` 或 `_cpu` 版本。
+4. 模型加载完成后运行 `Sydney-Experience/test_api.bat`，验证本地 API 和 Alpaca 人格链路。
 
 模型文件约 7.87 GB，下载来源、文件大小和 SHA-256 已写入脚本。请自行确认模型许可证及使用条件。
 
