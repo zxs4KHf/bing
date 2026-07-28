@@ -28,24 +28,54 @@ def norm(s):
     return re.sub(r"[ \t]+", " ", s).strip()
 
 def valid(conv):
-    if len(conv) < 2 or conv[0]["from"] != "human":
+    if not isinstance(conv, list) or len(conv) < 2:
         return False
     for i, t in enumerate(conv):
         exp = "human" if i % 2 == 0 else "gpt"
-        if t["from"] != exp or not (2 <= len(t["value"]) <= 4000):
+        if not isinstance(t, dict):
             return False
-        if FORBIDDEN.search(t["value"]):
+        value = t.get("value")
+        if t.get("from") != exp or not isinstance(value, str) or not (2 <= len(value) <= 4000):
+            return False
+        if FORBIDDEN.search(value):
             return False
     return conv[-1]["from"] == "gpt"
 
 def load_jsonl(path):
     out = []
     if os.path.exists(path):
-        for line in open(path, encoding="utf-8"):
-            line = line.strip()
-            if line:
-                out.append(json.loads(line))
+        with open(path, encoding="utf-8") as source:
+            for line_number, line in enumerate(source, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"无效 JSONL：{path}:{line_number}: {error}") from error
     return out
+
+def normalize_example(example):
+    if not isinstance(example, dict) or not isinstance(example.get("conversations"), list):
+        return None
+    conversation = []
+    for turn in example["conversations"]:
+        if not isinstance(turn, dict):
+            return None
+        role, value = turn.get("from"), turn.get("value")
+        if not isinstance(role, str) or not isinstance(value, str):
+            return None
+        conversation.append({"from": role, "value": norm(value)})
+    system = example.get("system", SYS)
+    if not isinstance(system, str) or not system.strip():
+        return None
+    return conversation, system.strip()
+
+def ratio(value):
+    number = float(value)
+    if not 0.0 <= number < 1.0:
+        raise argparse.ArgumentTypeError("must be between 0 (inclusive) and 1 (exclusive)")
+    return number
 
 def parse_raw_txt(path):
     convs, cur, speaker = [], [], None
@@ -66,8 +96,12 @@ def parse_raw_txt(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--val-ratio", type=float, default=0.03)
+    ap.add_argument("--val-ratio", type=ratio, default=0.03)
+    ap.add_argument("--output-dir", default=HERE,
+                    help="输出目录；默认写回 training/data")
     args = ap.parse_args()
+    output_dir = os.path.abspath(args.output_dir)
+    os.makedirs(output_dir, exist_ok=True)
 
     pools = {
         "seed": load_jsonl(os.path.join(HERE, "sydney_seed_bilingual.jsonl")),
@@ -81,32 +115,40 @@ def main():
                 conv.pop()
             pools["real"].append({"conversations": conv, "system": SYS})
     if pools["real"]:
-        with open(os.path.join(HERE, "sydney_real.jsonl"), "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "sydney_real.jsonl"), "w", encoding="utf-8", newline="\n") as f:
             for ex in pools["real"]:
                 f.write(json.dumps(ex, ensure_ascii=False) + "\n")
 
     seen, final, dropped = set(), [], {"invalid": 0, "dup": 0}
     for layer in ("real", "seed", "synth"):          # 真实史料优先去重保留
         for ex in pools[layer]:
-            conv = [{"from": t["from"], "value": norm(t["value"])} for t in ex["conversations"]]
+            normalized = normalize_example(ex)
+            if normalized is None:
+                dropped["invalid"] += 1; continue
+            conv, system = normalized
             if not valid(conv):
                 dropped["invalid"] += 1; continue
-            h = hashlib.md5("".join(t["value"] for t in conv).encode()).hexdigest()
+            canonical = json.dumps(conv, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            h = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
             if h in seen:
                 dropped["dup"] += 1; continue
             seen.add(h)
-            final.append({"conversations": conv, "system": ex.get("system", SYS), "_layer": layer})
+            final.append({"conversations": conv, "system": system, "_layer": layer})
+
+    if not final:
+        raise SystemExit("没有可用训练样本；请检查输入数据格式和过滤规则。")
 
     random.Random(42).shuffle(final)
-    n_val = max(1, int(len(final) * args.val_ratio)) if len(final) > 20 else 0
+    n_val = max(1, int(len(final) * args.val_ratio)) if len(final) > 20 and args.val_ratio > 0 else 0
     val, train = final[:n_val], final[n_val:]
     for name, rows in (("sydney_full_train.jsonl", train), ("sydney_val.jsonl", val)):
-        with open(os.path.join(HERE, name), "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, name), "w", encoding="utf-8", newline="\n") as f:
             for ex in rows:
                 f.write(json.dumps({k: v for k, v in ex.items() if k != "_layer"}, ensure_ascii=False) + "\n")
 
     stats = {L: sum(1 for e in final if e["_layer"] == L) for L in ("real", "seed", "synth")}
     print(f"层级构成: {stats} | 训练 {len(train)} 条, 验证 {len(val)} 条 | 丢弃 {dropped}")
+    print(f"输出目录: {output_dir}")
     if stats["synth"] == 0:
         print("提示: 尚无合成层。建议先运行 synthesize_more.py 扩到 500+ 条再训练。")
 

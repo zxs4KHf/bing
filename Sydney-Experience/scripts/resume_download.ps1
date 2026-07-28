@@ -1,7 +1,10 @@
 ﻿# ============================================================
 #  Free Sydney V2 13B 模型断点续传 + 自动校验
-#  生成日期: 2026-07-26  (Claude / Sydney-Experience 工具链)
 # ============================================================
+param(
+    [switch]$LaunchAfterVerify,
+    [switch]$NetworkConfirmed
+)
 $ErrorActionPreference = 'Stop'
 
 $SydneyDir    = Split-Path -Parent $PSScriptRoot
@@ -34,9 +37,11 @@ else {
     $remain = ($ExpectedSize - $cur) / 1GB
     Write-Host ("已有: {0:N0} 字节   还需下载: 约 {1:N2} GB" -f $cur, $remain)
     Write-Host ''
-    Write-Host '项目规则 (DEC-004)：只允许在 Wi-Fi 下下载，不使用移动流量。' -ForegroundColor Yellow
-    $ans = Read-Host '请确认当前已连接 Wi-Fi，继续请输入 y'
-    if ($ans -ne 'y') { Write-Host '已取消，未产生任何下载流量。'; Read-Host '按回车退出'; exit 0 }
+    if (-not $NetworkConfirmed) {
+        Write-Host '项目规则 (DEC-004)：只允许在 Wi-Fi/固定宽带下下载，不使用移动流量。' -ForegroundColor Yellow
+        $ans = Read-Host '请确认当前已连接 Wi-Fi/固定宽带，继续请输入 y'
+        if ($ans -ne 'y') { Write-Host '已取消，未产生任何下载流量。'; Read-Host '按回车退出'; exit 0 }
+    }
 
     if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
         Write-Host '[错误] 未找到 curl.exe（Windows 10 1803+ 应自带）。' -ForegroundColor Red
@@ -74,10 +79,14 @@ Write-Host "SHA-256 与 Hugging Face 官方值一致 ✓" -ForegroundColor Green
 Write-Host ''
 Write-Host '🎉 模型已完整就绪！' -ForegroundColor Cyan
 
-$go = Read-Host '现在就启动 Sydney 吗？(y/n)'
-if ($go -eq 'y') {
+if ($LaunchAfterVerify) {
     & (Join-Path $PSScriptRoot 'launch_sydney.ps1')
 } else {
-    Write-Host '以后随时双击 launch_sydney.bat 即可开聊。'
-    Read-Host '按回车退出'
+    $go = Read-Host '现在就启动 Sydney 吗？(y/n)'
+    if ($go -eq 'y') {
+        & (Join-Path $PSScriptRoot 'launch_sydney.ps1')
+    } else {
+        Write-Host '以后随时双击 launch_sydney.bat 即可开聊。'
+        Read-Host '按回车退出'
+    }
 }

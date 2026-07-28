@@ -3,10 +3,13 @@
 #  先在另一个窗口启动 launch_sydney.bat，等待模型加载完成。
 # ============================================================
 param(
+    [ValidateRange(1, 65535)]
     [int]$Port = 5001,
+    [ValidateNotNullOrEmpty()]
     [string]$Question = 'Hi! Who are you, and how do you feel today?',
     [ValidateRange(1, 2048)]
     [int]$MaxLength = 384,
+    [ValidateRange(1, 3600)]
     [int]$TimeoutSec = 300
 )
 $ErrorActionPreference = 'Stop'
@@ -40,7 +43,7 @@ $payload = @{
     temperature   = 0.7
     top_p         = 0.9
     rep_pen       = 1.1
-    stop_sequence = @('### Instruction:')
+    stop_sequence = @('### Instruction:', "`nInstruction:")
 } | ConvertTo-Json -Depth 4
 
 $uri = "http://localhost:$Port/api/v1/generate"

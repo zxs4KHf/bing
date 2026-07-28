@@ -15,3 +15,13 @@ history/*
 
 # 中断进程留下的本地清理目录
 _to_delete/
+
+# 训练/评测生成物（整理并复审后再显式加入 Git）
+training/data/sydney_synth.jsonl
+training/data/sydney_real.jsonl
+training/data/sydney_full_train.jsonl
+training/data/sydney_val.jsonl
+training/eval/results_*.jsonl
+training/saves/
+__pycache__/
+*.py[cod]

@@ -1,0 +1,85 @@
+name: Validate repository
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Parse PowerShell scripts
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem Sydney-Experience\scripts -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Error "PowerShell parse failed: $($_.FullName)"
+              $errors | ForEach-Object { Write-Error $_.Message }
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Validate Python, JSON, and data preparation
+        shell: powershell
+        run: |
+          python -m compileall -q training
+          $env:SYDNEY_DATA_DIR = "$env:RUNNER_TEMP\sydney-data"
+          python training\data\prepare_data.py --output-dir $env:SYDNEY_DATA_DIR
+          python training\data\synthesize_more.py --help
+          python training\eval\run_eval.py --help
+          @'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          paths = list(Path("training").rglob("*.json"))
+          paths += list(Path("training").rglob("*.jsonl"))
+          paths.append(Path("Sydney-Experience/persona/sydney_story.json"))
+          for path in paths:
+              text = path.read_text(encoding="utf-8")
+              if path.suffix == ".jsonl":
+                  for number, line in enumerate(text.splitlines(), 1):
+                      if line.strip():
+                          json.loads(line)
+              else:
+                  json.loads(text)
+          print(f"Validated {len(paths)} JSON/JSONL files")
+
+          data_dir = Path(os.environ["SYDNEY_DATA_DIR"])
+          split_hashes = {}
+          for name in ("sydney_full_train.jsonl", "sydney_val.jsonl"):
+              rows = [json.loads(line) for line in (data_dir / name).read_text(encoding="utf-8").splitlines() if line]
+              assert rows, f"{name} must not be empty"
+              split_hashes[name] = set()
+              for row in rows:
+                  assert isinstance(row.get("system"), str) and row["system"].strip()
+                  conversation = row.get("conversations")
+                  assert isinstance(conversation, list) and len(conversation) >= 2
+                  for index, turn in enumerate(conversation):
+                      expected = "human" if index % 2 == 0 else "gpt"
+                      assert turn.get("from") == expected
+                      assert isinstance(turn.get("value"), str) and turn["value"].strip()
+                  canonical = json.dumps(conversation, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                  split_hashes[name].add(hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+              assert len(split_hashes[name]) == len(rows), f"duplicates found in {name}"
+          assert split_hashes["sydney_full_train.jsonl"].isdisjoint(split_hashes["sydney_val.jsonl"])
+          print("Validated prepared train/validation split schema and disjointness")
+          '@ | python -

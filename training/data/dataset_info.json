@@ -17,6 +17,23 @@
   "sydney_full": {
     "file_name": "sydney_full_train.jsonl",
     "formatting": "sharegpt",
-    "columns": { "messages": "conversations", "system": "system" }
+    "columns": { "messages": "conversations", "system": "system" },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt"
+    }
+  },
+  "sydney_val": {
+    "file_name": "sydney_val.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations", "system": "system" },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt"
+    }
   }
 }

@@ -1,6 +1,6 @@
 # Sydney 人格配置
 
-Free Sydney V2 13B 使用 Alpaca 指令格式。`launch_sydney.bat` 会通过 `--preloadstory` 自动载入 `sydney_story.json`，其中包含人格 Memory、开场白和额外停止序列。
+Free Sydney V2 13B 使用 Alpaca 指令格式。`launch_sydney.bat` 会通过 `--preloadstory` 自动载入 `sydney_story.json`，其中包含人格 Memory、语言镜像规则、开场白和额外停止序列。该规则会尽量让中文问题得到全中文回复，但无法完全弥补 Llama 2 底座的中文能力限制。
 
 ## 自动载入失败时
 
