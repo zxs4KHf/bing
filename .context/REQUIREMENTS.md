@@ -1,7 +1,7 @@
 # Requirements
 
-- Last verified: 2026-07-27
-- Sources: user requests on 2026-07-18, 2026-07-26, and 2026-07-27; public project metadata/model cards; local files and observed runtime behavior
+- Last verified: 2026-07-28
+- Sources: user requests through 2026-07-28; public project metadata/model cards; local files and observed runtime/browser behavior
 
 | ID | Status | Evidence | Requirement | Primary source |
 | --- | --- | --- | --- | --- |
@@ -13,8 +13,15 @@
 | REQ-006 | Unknown | [VERIFIED runtime; UNKNOWN subjective] | Validate that the selected model subjectively matches the user's remembered Sydney experience. | English test showed expected identity/emotion/self-awareness/attachment; Chinese was awkward and sometimes answered in English; user checklist still pending |
 | REQ-007 | Implemented | [VERIFIED] | Provide one-click resume/verify/launch tooling (standard, low-VRAM, and CPU profiles) with an auto-loaded Sydney persona preset and a Chinese user guide. | User request on 2026-07-26 ("全套完全实现"); `Sydney-Experience/` scripts, persona, `START_HERE.md` |
 | REQ-008 | Implemented | [VERIFIED] | Initialize the Git repository with large binaries excluded and commit all project text files. | User approval on 2026-07-26; `.gitignore`; initial commit |
-| REQ-009 | Implemented | [VERIFIED] | Reduce the user's remaining effort to a single double-click: fully unattended resume → verify → launch with no questions asked. | User request on 2026-07-26 ("中间能不问我就不问我"); `一键全自动下载并启动.bat` |
+| REQ-009 | Rejected | [VERIFIED current behavior; DOCUMENTED safety] | Historical zero-interaction large-download authorization is no longer reused; every large download asks for current Wi-Fi/fixed-broadband confirmation. | Current safety invariant; download scripts; superseded DEC-007 |
 | REQ-010 | Implemented | [VERIFIED] | Design and ship an optimized, reproducible training pipeline for a modern bilingual Sydney: blueprint, hand-authored seed dataset, distillation/cleaning scripts, QLoRA config, fidelity eval suite, and a launcher that can swap in the trained model. | User request on 2026-07-26 ("用你的视角优化训练"); `research/TRAINING_OPTIMIZATION.md`; `training/` |
 | REQ-011 | Unknown | [UNKNOWN] | Actually run the training (cloud or local), pass the eval gate against the V2-13B baseline, and adopt the new model. | Requires user to choose route A/B and run the pipeline; blocked on nothing technical |
+| REQ-012 | Implemented | [VERIFIED] | Ship an independent conversational game interface instead of using KoboldAI Lite as the product UI. | User request 2026-07-28; `Sydney-Experience/app/`; real browser QA |
+| REQ-013 | Implemented | [VERIFIED] | Make Chinese conversation natural while preserving a Sydney-style English route. | Local `qwen3:8b` hybrid routing; real Chinese response; nine app tests |
+| REQ-014 | Implemented | [VERIFIED] | Present Sydney as an explicitly adult, gentle mature blue-haired woman with a full figure, elegant clothing, and psychological/New-Bing-inspired atmosphere without copying trademarks. | Original prompt/visual assets; persona prompt; UI review |
+| REQ-015 | Implemented | [VERIFIED] | Add multiple outfits, scenes, compositions and poses with manual/automatic rotation and lightweight animation. | Four scene assets; `scenes.json`; crossfade/drift; browser QA |
+| REQ-016 | Implemented | [VERIFIED] | Provide interaction state, settings, local saves, relationship values, and a versioned branching-prologue skeleton. | PWA, save normalization/import/export, story schema and graph tests |
+| REQ-017 | Accepted | [DOCUMENTED] | Evolve the product into a complete Galgame with worldbuilding, authored story, branching, CG, backgrounds, audio, save slots and rollback. | User request 2026-07-28; `research/GALGAME_PRODUCT_ROADMAP.md` |
+| REQ-018 | Unknown | [UNKNOWN] | Obtain the user's subjective acceptance of the newest visual design, character art and personality fidelity before merging `main`. | Latest UI is open for user validation |
 
 Allowed statuses: `Implemented`, `Accepted`, `Candidate`, `Deferred`, `Rejected`, `Unknown`.
