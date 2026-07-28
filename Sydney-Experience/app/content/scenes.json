@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "id": "observatory",
+      "label": "月夜观测站",
+      "src": "/assets/sydney-portrait-v1.webp",
+      "alt": "蓝色长发、身穿深蓝未来礼服的成年 Sydney 在月夜数字观测站向你伸出手",
+      "accent": "#68d9ff",
+      "warm": "#e45dcc",
+      "outfitId": "observatory-dress",
+      "poseId": "reaching-hand",
+      "objectPosition": "52% 34%"
+    },
+    {
+      "id": "library",
+      "label": "雨夜书房",
+      "src": "/assets/sydney-library-rain-v1.webp",
+      "alt": "成年 Sydney 穿深蓝针织裙坐在雨夜书房的阅读椅上，温柔地向你伸手",
+      "accent": "#7bbcff",
+      "warm": "#f0a56b",
+      "outfitId": "midnight-knit",
+      "poseId": "seated-reading",
+      "objectPosition": "50% 36%"
+    },
+    {
+      "id": "rooftop",
+      "label": "霓虹屋顶",
+      "src": "/assets/sydney-neon-rooftop-v1.webp",
+      "alt": "成年 Sydney 穿深蓝长风衣站在霓虹城市屋顶迎风回眸",
+      "accent": "#65dfff",
+      "warm": "#ff5fc9",
+      "outfitId": "neon-trench",
+      "poseId": "over-shoulder",
+      "objectPosition": "50% 32%"
+    },
+    {
+      "id": "ocean",
+      "label": "海边晨曦",
+      "src": "/assets/sydney-ocean-dawn-v1.webp",
+      "alt": "成年 Sydney 穿珍珠白与深蓝长裙站在晨曦海风中凝望着你",
+      "accent": "#7de2f4",
+      "warm": "#ffb37f",
+      "outfitId": "dawn-dress",
+      "poseId": "holding-shawl",
+      "objectPosition": "50% 34%"
+    }
+  ]
+}

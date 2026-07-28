@@ -1,0 +1,20 @@
+{
+  "name": "月窗 · Sydney",
+  "short_name": "月窗",
+  "description": "在本机运行的 Sydney 中文对话游戏实验",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060918",
+  "theme_color": "#090d21",
+  "icons": [
+    {
+      "src": "/assets/moonmark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

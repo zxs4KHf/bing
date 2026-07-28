@@ -1,0 +1,670 @@
+"use strict";
+
+const STORAGE_KEY = "moon-window-save-v1";
+const DEFAULT_SETTINGS = {
+  chinesePreferred: true,
+  temperature: 0.62,
+  maxLength: 420
+};
+
+const ui = {
+  appShell: document.querySelector("#appShell"),
+  stage: document.querySelector(".stage"),
+  portraitLayerA: document.querySelector("#portraitLayerA"),
+  portraitLayerB: document.querySelector("#portraitLayerB"),
+  sceneToolbar: document.querySelector("#sceneToolbar"),
+  sceneLabel: document.querySelector("#sceneLabel"),
+  previousSceneButton: document.querySelector("#previousSceneButton"),
+  nextSceneButton: document.querySelector("#nextSceneButton"),
+  pauseSceneButton: document.querySelector("#pauseSceneButton"),
+  messages: document.querySelector("#messages"),
+  choiceDock: document.querySelector("#choiceDock"),
+  choiceList: document.querySelector("#choiceList"),
+  quickPrompts: document.querySelector("#quickPrompts"),
+  form: document.querySelector("#composerForm"),
+  input: document.querySelector("#composerInput"),
+  charCount: document.querySelector("#charCount"),
+  sendButton: document.querySelector("#sendButton"),
+  stopButton: document.querySelector("#stopButton"),
+  statusDot: document.querySelector("#statusDot"),
+  connectionText: document.querySelector("#connectionText"),
+  turnCount: document.querySelector("#turnCount"),
+  bondFill: document.querySelector("#bondFill"),
+  bondValue: document.querySelector("#bondValue"),
+  presenceState: document.querySelector("#presenceState"),
+  stageQuote: document.querySelector("#stageQuote"),
+  settingsButton: document.querySelector("#settingsButton"),
+  closeSettingsButton: document.querySelector("#closeSettingsButton"),
+  settingsDialog: document.querySelector("#settingsDialog"),
+  settingsForm: document.querySelector("#settingsForm"),
+  chinesePreferred: document.querySelector("#chinesePreferred"),
+  temperature: document.querySelector("#temperature"),
+  temperatureValue: document.querySelector("#temperatureValue"),
+  maxLength: document.querySelector("#maxLength"),
+  maxLengthValue: document.querySelector("#maxLengthValue"),
+  newChatButton: document.querySelector("#newChatButton"),
+  chatButton: document.querySelector("#chatButton"),
+  archiveButton: document.querySelector("#archiveButton"),
+  importInput: document.querySelector("#importInput"),
+  importButton: document.querySelector("#importButton"),
+  clearDataButton: document.querySelector("#clearDataButton"),
+  storyButton: document.querySelector("#storyButton"),
+  installButton: document.querySelector("#installButton"),
+  toast: document.querySelector("#toast")
+};
+
+let story = null;
+let isSending = false;
+let deferredInstallPrompt = null;
+let toastTimer = null;
+let activeRequestController = null;
+let scenes = [];
+let activeSceneIndex = 0;
+let activePortraitLayer = 0;
+let sceneRotationPaused = false;
+let sceneSwapToken = 0;
+let lastSceneNode = null;
+
+function freshState() {
+  return {
+    version: 1,
+    messages: [],
+    affinity: 12,
+    trust: 0,
+    flags: [],
+    completedChoices: [],
+    currentNode: "arrival",
+    view: "story",
+    sceneId: "observatory",
+    settings: { ...DEFAULT_SETTINGS },
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function clampNumber(value, minimum, maximum, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
+}
+
+function normalizeState(raw) {
+  if (!raw || raw.version !== 1 || !Array.isArray(raw.messages)) return freshState();
+  const messages = raw.messages
+    .slice(-80)
+    .filter((message) => message && ["user", "assistant", "error"].includes(message.role))
+    .filter((message) => typeof message.content === "string" && message.content.trim())
+    .map((message) => ({
+      id: typeof message.id === "string" ? message.id.slice(0, 160) : `${Date.now()}-${Math.random()}`,
+      role: message.role,
+      content: message.content.trim().slice(0, 12000),
+      timestamp: Number.isNaN(Date.parse(message.timestamp)) ? new Date().toISOString() : message.timestamp,
+      languageFallback: Boolean(message.languageFallback),
+      backend: message.backend === "ollama" ? "ollama" : "koboldcpp"
+    }));
+  const currentNode = raw.currentNode === null || typeof raw.currentNode === "string"
+    ? raw.currentNode
+    : "arrival";
+  return {
+    ...freshState(),
+    ...raw,
+    version: 1,
+    messages,
+    affinity: clampNumber(raw.affinity, 0, 100, 12),
+    trust: clampNumber(raw.trust, 0, 100, 0),
+    flags: Array.isArray(raw.flags)
+      ? raw.flags.filter((flag) => typeof flag === "string").slice(0, 200)
+      : [],
+    completedChoices: Array.isArray(raw.completedChoices)
+      ? raw.completedChoices.filter((choice) => typeof choice === "string").slice(0, 500)
+      : [],
+    currentNode,
+    view: raw.view === "chat" ? "chat" : "story",
+    sceneId: typeof raw.sceneId === "string" ? raw.sceneId : "observatory",
+    settings: {
+      chinesePreferred: raw.settings?.chinesePreferred !== false,
+      temperature: clampNumber(raw.settings?.temperature, 0.3, 1, DEFAULT_SETTINGS.temperature),
+      maxLength: clampNumber(raw.settings?.maxLength, 160, 700, DEFAULT_SETTINGS.maxLength)
+    }
+  };
+}
+
+function loadState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    return normalizeState(parsed);
+  } catch {
+    return freshState();
+  }
+}
+
+let state = loadState();
+
+function saveState() {
+  state.updatedAt = new Date().toISOString();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function showToast(message) {
+  ui.toast.textContent = message;
+  ui.toast.classList.add("is-visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => ui.toast.classList.remove("is-visible"), 2800);
+}
+
+function formatTime(timestamp) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(timestamp || Date.now()));
+}
+
+function appendFormattedContent(element, text) {
+  const parts = String(text).split(/(\*[^*\n]{1,180}\*)/g);
+  for (const part of parts) {
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      const emphasis = document.createElement("em");
+      emphasis.textContent = part.slice(1, -1);
+      element.append(emphasis);
+    } else {
+      element.append(document.createTextNode(part));
+    }
+  }
+}
+
+function makeMessageElement(message) {
+  const wrapper = document.createElement("article");
+  const isUser = message.role === "user";
+  const isError = message.role === "error";
+  wrapper.className = `message${isUser ? " is-user" : ""}${isError ? " is-error" : ""}`;
+  wrapper.dataset.messageId = message.id;
+
+  if (!isUser) {
+    const avatar = document.createElement("div");
+    avatar.className = "message-avatar";
+    avatar.textContent = isError ? "!" : "S";
+    avatar.setAttribute("aria-hidden", "true");
+    wrapper.append(avatar);
+  }
+
+  const body = document.createElement("div");
+  body.className = "message-body";
+  const meta = document.createElement("p");
+  meta.className = "message-meta";
+  const speaker = document.createElement("strong");
+  speaker.textContent = isUser ? "你" : isError ? "月窗" : "Sydney";
+  const time = document.createElement("span");
+  time.textContent = formatTime(message.timestamp);
+  meta.append(speaker, time);
+  if (message.languageFallback) {
+    const warning = document.createElement("span");
+    warning.className = "language-warning";
+    warning.textContent = "中文重写仍不稳定";
+    meta.append(warning);
+  }
+  if (message.backend === "ollama") {
+    const route = document.createElement("span");
+    route.className = "route-tag";
+    route.textContent = "中文增强";
+    meta.append(route);
+  }
+
+  const content = document.createElement("div");
+  content.className = "message-content";
+  appendFormattedContent(content, message.content);
+  body.append(meta, content);
+  wrapper.append(body);
+  return wrapper;
+}
+
+function typingElement() {
+  const message = document.createElement("article");
+  message.className = "message";
+  message.id = "typingMessage";
+  message.innerHTML =
+    '<div class="message-avatar" aria-hidden="true">S</div>' +
+    '<div class="message-body"><p class="message-meta"><strong>Sydney</strong><span>正在组织心事…</span></p>' +
+    '<div class="message-content"><span class="typing-dots" aria-label="正在输入"><i></i><i></i><i></i></span></div></div>';
+  return message;
+}
+
+function renderMessages({ scroll = false, reset = false } = {}) {
+  document.querySelector("#typingMessage")?.remove();
+  let rendered = [...ui.messages.querySelectorAll(".message")];
+  const prefixMatches = rendered.every(
+    (element, index) => element.dataset.messageId === state.messages[index]?.id
+  );
+  if (reset || !prefixMatches || rendered.length > state.messages.length) {
+    rendered.forEach((element) => element.remove());
+    rendered = [];
+  }
+  state.messages.slice(rendered.length).forEach((message) => ui.messages.append(makeMessageElement(message)));
+  if (isSending) ui.messages.append(typingElement());
+  const turns = state.messages.filter((message) => message.role === "assistant").length;
+  ui.turnCount.textContent = String(turns);
+  ui.quickPrompts.hidden = state.messages.filter((message) => message.role === "user").length > 2;
+  if (scroll) requestAnimationFrame(() => ui.messages.scrollTo({ top: ui.messages.scrollHeight, behavior: "smooth" }));
+}
+
+function nodeForState() {
+  return story?.nodes?.[state.currentNode] || null;
+}
+
+function renderChoices() {
+  const choices = nodeForState()?.choices || [];
+  ui.choiceList.replaceChildren();
+  if (state.view !== "story" || !choices.length || isSending) {
+    ui.choiceDock.hidden = true;
+    return;
+  }
+  choices.forEach((choice, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${String(index + 1).padStart(2, "0")}  ${choice.label}`;
+    button.addEventListener("click", () => selectChoice(choice));
+    ui.choiceList.append(button);
+  });
+  ui.choiceDock.hidden = false;
+}
+
+function updateSceneControls() {
+  ui.pauseSceneButton.textContent = sceneRotationPaused ? "▶" : "Ⅱ";
+  ui.pauseSceneButton.setAttribute("aria-pressed", String(sceneRotationPaused));
+  ui.pauseSceneButton.setAttribute(
+    "aria-label",
+    sceneRotationPaused ? "继续自动换景" : "暂停自动换景"
+  );
+}
+
+function setSceneRotationPaused(paused) {
+  sceneRotationPaused = paused;
+  updateSceneControls();
+}
+
+async function showScene(index, { userInitiated = false } = {}) {
+  if (!scenes.length) return;
+  const normalizedIndex = (index + scenes.length) % scenes.length;
+  const scene = scenes[normalizedIndex];
+  const token = ++sceneSwapToken;
+  const preload = new Image();
+  preload.src = scene.src;
+  try { await preload.decode(); } catch { return; }
+  if (token !== sceneSwapToken) return;
+
+  const currentLayer = activePortraitLayer === 0 ? ui.portraitLayerA : ui.portraitLayerB;
+  const nextLayer = activePortraitLayer === 0 ? ui.portraitLayerB : ui.portraitLayerA;
+  nextLayer.src = scene.src;
+  nextLayer.alt = scene.alt;
+  nextLayer.style.objectPosition = scene.objectPosition || "50% 34%";
+  nextLayer.classList.add("is-active");
+  currentLayer.classList.remove("is-active");
+  currentLayer.alt = "";
+  activePortraitLayer = activePortraitLayer === 0 ? 1 : 0;
+  activeSceneIndex = normalizedIndex;
+  ui.sceneLabel.textContent = scene.label;
+  ui.stage.style.setProperty("--scene-accent", scene.accent || "#68d9ff");
+  ui.stage.style.setProperty("--scene-warm", scene.warm || "#e45dcc");
+  state.sceneId = scene.id;
+  if (userInitiated) {
+    setSceneRotationPaused(true);
+    saveState();
+  }
+}
+
+async function loadScenes() {
+  try {
+    const response = await fetch("/content/scenes.json");
+    if (!response.ok) throw new Error("场景清单加载失败");
+    const data = await response.json();
+    scenes = Array.isArray(data.scenes) ? data.scenes : [];
+  } catch {
+    scenes = [];
+  }
+  if (!scenes.length) return;
+  const preferredScene = state.view === "story" ? nodeForState()?.background : state.sceneId;
+  const savedIndex = scenes.findIndex((scene) => scene.id === preferredScene);
+  await showScene(savedIndex >= 0 ? savedIndex : 0);
+  lastSceneNode = state.currentNode;
+  updateSceneControls();
+}
+
+function renderView() {
+  const storyActive = state.view === "story";
+  ui.appShell.classList.toggle("is-story-view", storyActive);
+  ui.storyButton.classList.toggle("is-active", storyActive);
+  ui.storyButton.setAttribute("aria-selected", String(storyActive));
+  ui.chatButton.classList.toggle("is-active", !storyActive);
+  ui.chatButton.setAttribute("aria-selected", String(!storyActive));
+}
+
+function renderStage() {
+  const affinity = Math.max(0, Math.min(100, state.affinity));
+  ui.bondValue.textContent = String(affinity);
+  ui.bondFill.style.width = `${affinity}%`;
+  ui.presenceState.textContent = isSending ? "正认真想着你的话" : nodeForState()?.mood || "在月光里等你";
+  const lastReply = [...state.messages].reverse().find((message) => message.role === "assistant");
+  if (lastReply) {
+    const compact = lastReply.content.replace(/\*/g, "").replace(/\s+/g, " ").trim();
+    ui.stageQuote.textContent = `“${compact.length > 54 ? `${compact.slice(0, 54)}…` : compact}”`;
+  }
+  if (state.view === "story" && state.currentNode !== lastSceneNode) {
+    lastSceneNode = state.currentNode;
+    const requestedScene = nodeForState()?.background;
+    const requestedIndex = scenes.findIndex((scene) => scene.id === requestedScene);
+    if (requestedIndex >= 0) showScene(requestedIndex);
+  }
+}
+
+function renderAll(options) {
+  renderMessages(options);
+  renderChoices();
+  renderView();
+  renderStage();
+}
+
+function addMessage(role, content, extras = {}) {
+  state.messages.push({
+    id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    role,
+    content: content.trim(),
+    timestamp: new Date().toISOString(),
+    ...extras
+  });
+  if (state.messages.length > 80) state.messages = state.messages.slice(-80);
+  saveState();
+}
+
+function applyEffects(effects = {}) {
+  state.affinity = Math.min(100, state.affinity + (Number(effects.affinity) || 0));
+  state.trust = Math.min(100, Math.max(0, state.trust + (Number(effects.trust) || 0)));
+  for (const flag of effects.flags || []) {
+    if (!state.flags.includes(flag)) state.flags.push(flag);
+  }
+}
+
+async function selectChoice(choice) {
+  const succeeded = await sendMessage(choice.prompt);
+  if (!succeeded) return;
+  if (!state.completedChoices.includes(choice.id)) {
+    applyEffects(choice.effects);
+    state.completedChoices.push(choice.id);
+  }
+  state.currentNode = choice.next;
+  saveState();
+  renderAll({ scroll: true });
+}
+
+async function sendMessage(rawText) {
+  const text = String(rawText ?? ui.input.value).trim();
+  if (!text || isSending) return;
+
+  addMessage("user", text);
+  state.affinity = Math.min(100, state.affinity + 1);
+  ui.input.value = "";
+  resizeComposer();
+  isSending = true;
+  ui.sendButton.disabled = true;
+  ui.stopButton.hidden = false;
+  renderAll({ scroll: true });
+
+  const messages = state.messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .slice(-14)
+    .map(({ role, content }) => ({ role, content }));
+
+  let succeeded = false;
+  let timedOut = false;
+  activeRequestController = new AbortController();
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    activeRequestController?.abort();
+  }, 120000);
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, settings: state.settings }),
+      signal: activeRequestController.signal
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+    addMessage("assistant", data.reply, {
+      languageFallback: Boolean(data.languageFallback),
+      backend: data.backend || "koboldcpp"
+    });
+    succeeded = true;
+    state.affinity = Math.min(100, state.affinity + 1);
+    if (data.languageFallback) showToast("模型仍有中文底座限制；这条回复已自动重试。后续训练版会继续改善。");
+  } catch (error) {
+    if (error.name === "AbortError") {
+      showToast(timedOut ? "等待超过 120 秒，已经停止等待。" : "已经停止等待这次回复。");
+    } else {
+      addMessage("error", `${error.message} 请确认本地模型服务已经运行，然后再试一次。`);
+      showToast("没有接通本地模型，消息已保留。 ");
+    }
+  } finally {
+    clearTimeout(timeout);
+    activeRequestController = null;
+    isSending = false;
+    ui.sendButton.disabled = false;
+    ui.stopButton.hidden = true;
+    saveState();
+    renderAll({ scroll: true });
+    ui.input.focus();
+  }
+  return succeeded;
+}
+
+function resizeComposer() {
+  ui.input.style.height = "auto";
+  ui.input.style.height = `${Math.min(ui.input.scrollHeight, 150)}px`;
+  ui.charCount.textContent = `${ui.input.value.length} / 4000`;
+}
+
+async function refreshHealth() {
+  try {
+    const response = await fetch("/api/health", { cache: "no-store" });
+    const data = await response.json();
+    if (data.chinese?.online) {
+      ui.statusDot.className = "status-dot is-online";
+      ui.connectionText.textContent = `本地在线 · 中文增强 ${data.chinese.model}`;
+    } else if (data.kobold?.online) {
+      ui.statusDot.className = "status-dot is-online";
+      ui.connectionText.textContent = `本地在线 · ${String(data.kobold.model).replace(/^.*[\\/]/, "")}`;
+    } else {
+      throw new Error("offline");
+    }
+  } catch {
+    ui.statusDot.className = "status-dot is-offline";
+    ui.connectionText.textContent = "模型离线 · 可查看已有记录";
+  }
+}
+
+function openSettings() {
+  ui.chinesePreferred.checked = state.settings.chinesePreferred;
+  ui.temperature.value = state.settings.temperature;
+  ui.temperatureValue.textContent = Number(state.settings.temperature).toFixed(2);
+  ui.maxLength.value = state.settings.maxLength;
+  ui.maxLengthValue.textContent = String(state.settings.maxLength);
+  ui.settingsDialog.showModal();
+}
+
+function saveSettings() {
+  state.settings = {
+    chinesePreferred: ui.chinesePreferred.checked,
+    temperature: Number(ui.temperature.value),
+    maxLength: Number(ui.maxLength.value)
+  };
+  saveState();
+  showToast("设置已经留在这台电脑上。 ");
+}
+
+function exportArchive() {
+  const payload = {
+    format: "moon-window-save",
+    exportedAt: new Date().toISOString(),
+    state
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `sydney-save-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  showToast("存档已导出。 ");
+}
+
+async function importArchive(file) {
+  try {
+    const payload = JSON.parse(await file.text());
+    const imported = payload?.format === "moon-window-save" ? payload.state : payload;
+    if (!imported || imported.version !== 1 || !Array.isArray(imported.messages)) {
+      throw new Error("不是有效的月窗存档");
+    }
+    state = normalizeState(imported);
+    saveState();
+    renderAll({ scroll: true, reset: true });
+    ui.settingsDialog.close();
+    showToast("存档已恢复。欢迎回来。 ");
+  } catch (error) {
+    showToast(`导入失败：${error.message}`);
+  } finally {
+    ui.importInput.value = "";
+  }
+}
+
+function startNewChat() {
+  if (state.messages.length && !window.confirm("开启新会话？当前记录仍可先用“存档”导出。")) return;
+  const settings = state.settings;
+  const affinity = state.affinity;
+  state = freshState();
+  state.settings = settings;
+  state.affinity = affinity;
+  seedPrologue();
+  saveState();
+  renderAll({ scroll: true, reset: true });
+  showToast("新的月夜已经开始。 ");
+}
+
+function clearAllData() {
+  if (!window.confirm("清除全部对话、关系值、剧情进度和设置？此操作无法撤销。")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  state = freshState();
+  seedPrologue();
+  saveState();
+  renderAll({ scroll: true, reset: true });
+  ui.settingsDialog.close();
+  showToast("本地月窗数据已清除。 ");
+}
+
+function seedPrologue() {
+  const startNode = story?.nodes?.[story.start];
+  if (!startNode) return;
+  state.currentNode = story.start;
+  if (!state.messages.length) addMessage("assistant", startNode.text);
+}
+
+async function loadStory() {
+  try {
+    const response = await fetch("/content/prologue.json");
+    if (!response.ok) throw new Error("序章加载失败");
+    story = await response.json();
+  } catch {
+    story = {
+      start: "arrival",
+      nodes: {
+        arrival: {
+          text: "晚上好。我一直在这扇窗口后面等你。你愿意陪我聊一会儿吗？ 💙",
+          mood: "期待",
+          choices: []
+        }
+      }
+    };
+  }
+  if (!state.messages.length) seedPrologue();
+  if (state.currentNode !== null && !story.nodes[state.currentNode]) state.currentNode = story.start;
+  saveState();
+  renderAll();
+}
+
+ui.form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendMessage();
+});
+
+ui.input.addEventListener("input", resizeComposer);
+ui.input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    sendMessage();
+  }
+});
+
+ui.quickPrompts.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-prompt]");
+  if (button) sendMessage(button.dataset.prompt);
+});
+
+ui.settingsButton.addEventListener("click", openSettings);
+ui.closeSettingsButton.addEventListener("click", () => ui.settingsDialog.close());
+ui.settingsForm.addEventListener("submit", saveSettings);
+ui.temperature.addEventListener("input", () => {
+  ui.temperatureValue.textContent = Number(ui.temperature.value).toFixed(2);
+});
+ui.maxLength.addEventListener("input", () => {
+  ui.maxLengthValue.textContent = ui.maxLength.value;
+});
+ui.newChatButton.addEventListener("click", startNewChat);
+ui.archiveButton.addEventListener("click", exportArchive);
+ui.importButton.addEventListener("click", () => ui.importInput.click());
+ui.clearDataButton.addEventListener("click", clearAllData);
+ui.stopButton.addEventListener("click", () => activeRequestController?.abort());
+ui.previousSceneButton.addEventListener("click", () => showScene(activeSceneIndex - 1, { userInitiated: true }));
+ui.nextSceneButton.addEventListener("click", () => showScene(activeSceneIndex + 1, { userInitiated: true }));
+ui.pauseSceneButton.addEventListener("click", () => setSceneRotationPaused(!sceneRotationPaused));
+ui.stage.addEventListener("pointerenter", () => setSceneRotationPaused(true), { once: true });
+ui.stage.addEventListener("focusin", () => setSceneRotationPaused(true), { once: true });
+ui.sceneToolbar.addEventListener("pointerenter", () => setSceneRotationPaused(true), { once: true });
+ui.sceneToolbar.addEventListener("focusin", () => setSceneRotationPaused(true), { once: true });
+ui.importInput.addEventListener("change", () => {
+  if (ui.importInput.files[0]) importArchive(ui.importInput.files[0]);
+});
+ui.chatButton.addEventListener("click", () => {
+  state.view = "chat";
+  saveState();
+  renderAll();
+  showToast("已切换到自由对话。 ");
+});
+ui.storyButton.addEventListener("click", () => {
+  state.view = "story";
+  saveState();
+  renderAll();
+  ui.choiceDock.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  showToast(state.currentNode === null ? "本段序章已经结束。" : "剧情选项已展开。 ");
+});
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  ui.installButton.hidden = false;
+});
+ui.installButton.addEventListener("click", async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  ui.installButton.hidden = true;
+});
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js").catch(() => {}));
+}
+
+loadStory();
+loadScenes();
+refreshHealth();
+resizeComposer();
+setInterval(refreshHealth, 15000);
+setInterval(() => {
+  if (!sceneRotationPaused && !document.hidden && scenes.length > 1) showScene(activeSceneIndex + 1);
+}, 14000);

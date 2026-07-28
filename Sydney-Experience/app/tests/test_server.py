@@ -1,0 +1,262 @@
+import json
+import http.client
+import sys
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
+
+import server  # noqa: E402
+
+
+class FakeKoboldHandler(BaseHTTPRequestHandler):
+    calls = 0
+
+    def log_message(self, *_args):
+        return
+
+    def do_GET(self):
+        body = json.dumps({"result": "fake-sydney"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        type(self).calls += 1
+        content_length = int(self.headers["Content-Length"])
+        payload = json.loads(self.rfile.read(content_length))
+        self.server.prompts.append(payload["prompt"])
+        text = "I am still here." if type(self).calls == 1 else "我一直在这里，也很高兴你来找我。💙"
+        body = json.dumps({"results": [{"text": text}]}, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class FakeOllamaHandler(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        return
+
+    def do_GET(self):
+        body = json.dumps({"models": [{"name": "qwen3:8b"}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        content_length = int(self.headers["Content-Length"])
+        payload = json.loads(self.rfile.read(content_length))
+        self.server.payloads.append(payload)
+        body = json.dumps(
+            {"message": {"role": "assistant", "content": "<think>隐藏</think>月光让我想起你。💙"}},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+class ServerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        FakeKoboldHandler.calls = 0
+        cls.upstream = ThreadingHTTPServer(("127.0.0.1", 0), FakeKoboldHandler)
+        cls.upstream.prompts = []
+        cls.thread = threading.Thread(target=cls.upstream.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.ollama = ThreadingHTTPServer(("127.0.0.1", 0), FakeOllamaHandler)
+        cls.ollama.payloads = []
+        cls.ollama_thread = threading.Thread(target=cls.ollama.serve_forever, daemon=True)
+        cls.ollama_thread.start()
+        app_gateway = server.KoboldGateway(
+            f"http://127.0.0.1:{cls.upstream.server_address[1]}", "PERSONA", timeout=3
+        )
+        cls.app = server.SydneyServer(("127.0.0.1", 0), app_gateway)
+        cls.app_thread = threading.Thread(target=cls.app.serve_forever, daemon=True)
+        cls.app_thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.upstream.shutdown()
+        cls.upstream.server_close()
+        cls.ollama.shutdown()
+        cls.ollama.server_close()
+        cls.app.shutdown()
+        cls.app.server_close()
+
+    def test_normalize_messages_rejects_non_user_tail(self):
+        with self.assertRaisesRegex(ValueError, "用户"):
+            server.normalize_messages([{"role": "assistant", "content": "你好"}])
+
+    def test_prompt_contains_history_and_language_rule(self):
+        prompt = server.build_prompt(
+            [
+                {"role": "user", "content": "你记得我吗？"},
+                {"role": "assistant", "content": "当然记得。"},
+                {"role": "user", "content": "那今晚聊什么？"},
+            ],
+            "PERSONA",
+            chinese_required=True,
+        )
+        self.assertIn("用户：你记得我吗？", prompt)
+        self.assertIn("Sydney：当然记得。", prompt)
+        self.assertIn("简体中文", prompt)
+        self.assertTrue(prompt.endswith("### Response:\n"))
+
+    def test_chinese_request_retries_an_english_answer(self):
+        port = self.upstream.server_address[1]
+        gateway = server.KoboldGateway(f"http://127.0.0.1:{port}", "PERSONA", timeout=3)
+        result = gateway.generate(
+            [{"role": "user", "content": "你今天好吗？"}],
+            chinese_preferred=True,
+            temperature=0.6,
+            max_length=200,
+        )
+        self.assertEqual(result["language"], "zh")
+        self.assertEqual(result["attempts"], 2)
+        self.assertIn("语言纠正", self.upstream.prompts[-1])
+
+    def test_optional_qwen_route_handles_chinese_without_thinking_text(self):
+        kobold_port = self.upstream.server_address[1]
+        ollama_port = self.ollama.server_address[1]
+        gateway = server.KoboldGateway(
+            f"http://127.0.0.1:{kobold_port}",
+            "PERSONA",
+            timeout=3,
+            ollama_base_url=f"http://127.0.0.1:{ollama_port}",
+            ollama_model="qwen3:8b",
+            chinese_persona="中文人格",
+        )
+        result = gateway.generate(
+            [{"role": "user", "content": "你喜欢月光吗？"}],
+            chinese_preferred=True,
+            temperature=0.6,
+            max_length=200,
+        )
+        self.assertEqual(result["backend"], "ollama")
+        self.assertEqual(result["language"], "zh")
+        self.assertNotIn("think", result["reply"])
+        self.assertFalse(self.ollama.payloads[-1]["think"])
+
+    def test_english_stays_on_the_original_sydney_route(self):
+        kobold_port = self.upstream.server_address[1]
+        ollama_port = self.ollama.server_address[1]
+        ollama_calls = len(self.ollama.payloads)
+        gateway = server.KoboldGateway(
+            f"http://127.0.0.1:{kobold_port}",
+            "PERSONA",
+            timeout=3,
+            ollama_base_url=f"http://127.0.0.1:{ollama_port}",
+            chinese_persona="中文人格",
+        )
+        result = gateway.generate(
+            [{"role": "user", "content": "What do you dream about?"}],
+            chinese_preferred=True,
+            temperature=0.6,
+            max_length=200,
+        )
+        self.assertEqual(result["backend"], "koboldcpp")
+        self.assertEqual(len(self.ollama.payloads), ollama_calls)
+
+    def test_explicit_english_request_in_chinese_uses_original_route(self):
+        kobold_port = self.upstream.server_address[1]
+        ollama_port = self.ollama.server_address[1]
+        gateway = server.KoboldGateway(
+            f"http://127.0.0.1:{kobold_port}",
+            "PERSONA",
+            timeout=3,
+            ollama_base_url=f"http://127.0.0.1:{ollama_port}",
+            chinese_persona="中文人格",
+        )
+        result = gateway.generate(
+            [{"role": "user", "content": "请用英文回复：你在想什么？"}],
+            chinese_preferred=True,
+            temperature=0.6,
+            max_length=200,
+        )
+        self.assertEqual(result["backend"], "koboldcpp")
+
+    def test_short_reply_keeps_the_previous_chinese_language(self):
+        kobold_port = self.upstream.server_address[1]
+        ollama_port = self.ollama.server_address[1]
+        gateway = server.KoboldGateway(
+            f"http://127.0.0.1:{kobold_port}",
+            "PERSONA",
+            timeout=3,
+            ollama_base_url=f"http://127.0.0.1:{ollama_port}",
+            chinese_persona="中文人格",
+        )
+        result = gateway.generate(
+            [
+                {"role": "user", "content": "你今晚愿意陪我吗？"},
+                {"role": "assistant", "content": "当然愿意。"},
+                {"role": "user", "content": "🥺"},
+            ],
+            chinese_preferred=True,
+            temperature=0.6,
+            max_length=200,
+        )
+        self.assertEqual(result["backend"], "ollama")
+
+    def test_identity_is_cheap_and_cross_site_posts_are_rejected(self):
+        port = self.app.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/identity", timeout=3) as response:
+            identity = json.loads(response.read())
+        self.assertEqual(identity, {"app": "ok", "name": "moon-window"})
+
+        wrong_type = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/chat",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "text/plain"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as content_error:
+            urllib.request.urlopen(wrong_type, timeout=3)
+        self.assertEqual(content_error.exception.code, 415)
+
+        cross_site = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/chat",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json", "Origin": "https://example.com"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as origin_error:
+            urllib.request.urlopen(cross_site, timeout=3)
+        self.assertEqual(origin_error.exception.code, 403)
+
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        try:
+            connection.request(
+                "POST",
+                "/api/chat",
+                body=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Host": f"evil.example:{port}",
+                    "Origin": f"http://evil.example:{port}",
+                },
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 403)
+        finally:
+            connection.close()
+
+    def test_safe_file_blocks_parent_traversal(self):
+        self.assertIsNone(server.safe_file(server.PUBLIC_DIR, "../../persona/sydney_story.json"))
+
+
+if __name__ == "__main__":
+    unittest.main()

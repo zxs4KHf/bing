@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/moon-window/story.schema.json",
+  "title": "月窗剧情图",
+  "type": "object",
+  "required": ["schemaVersion", "storyId", "title", "start", "variables", "nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "storyId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"},
+    "title": {"type": "string", "minLength": 1},
+    "start": {"type": "string", "minLength": 1},
+    "variables": {"type": "object"},
+    "nodes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/node"}
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["speaker", "choices"],
+      "additionalProperties": false,
+      "properties": {
+        "speaker": {"type": "string", "minLength": 1},
+        "text": {"type": "string"},
+        "mood": {"type": "string"},
+        "background": {"type": "string"},
+        "portrait": {"type": "string"},
+        "music": {"type": "string"},
+        "conditions": {"type": "array", "items": {"type": "object"}},
+        "choices": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/choice"}
+        }
+      }
+    },
+    "choice": {
+      "type": "object",
+      "required": ["id", "label", "prompt", "next", "effects"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_]{1,63}$"},
+        "label": {"type": "string", "minLength": 1},
+        "prompt": {"type": "string", "minLength": 1},
+        "next": {"type": ["string", "null"]},
+        "conditions": {"type": "array", "items": {"type": "object"}},
+        "effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "affinity": {"type": "number"},
+            "trust": {"type": "number"},
+            "flags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          }
+        }
+      }
+    }
+  }
+}

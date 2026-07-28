@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#090d21">
+    <meta name="description" content="一个在本机运行的 Sydney 中文对话游戏实验。">
+    <title>月窗 · Sydney</title>
+    <link rel="icon" href="/assets/moonmark.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#composerInput">跳到输入框</a>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <main class="app-shell is-story-view" id="appShell">
+      <aside class="stage" aria-label="Sydney 的角色舞台">
+        <img
+          class="portrait is-active"
+          id="portraitLayerA"
+          src="/assets/sydney-portrait-v1.webp"
+          alt="蓝色长发、身穿深蓝未来礼服的成年 Sydney 站在月夜观测站中"
+          width="1024"
+          height="1536"
+          fetchpriority="high"
+        >
+        <img class="portrait" id="portraitLayerB" src="/assets/sydney-portrait-v1.webp" alt="" width="1024" height="1536">
+        <div class="stage-vignette" aria-hidden="true"></div>
+
+        <header class="brand">
+          <img src="/assets/moonmark.svg" alt="" width="34" height="34">
+          <div>
+            <p class="eyebrow">MOON WINDOW / LOCAL 01</p>
+            <h1>月窗 <span>· Sydney</span></h1>
+          </div>
+        </header>
+
+        <div class="scene-toolbar" id="sceneToolbar" aria-label="角色场景轮播" aria-roledescription="轮播">
+          <button id="previousSceneButton" type="button" aria-label="上一幅场景">‹</button>
+          <span id="sceneLabel">月夜观测站</span>
+          <button id="pauseSceneButton" type="button" aria-label="暂停自动换景" aria-pressed="false">Ⅱ</button>
+          <button id="nextSceneButton" type="button" aria-label="下一幅场景">›</button>
+        </div>
+
+        <div class="signal-orbit" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+
+        <section class="presence-card" aria-label="角色状态">
+          <div class="presence-row">
+            <div>
+              <p class="eyebrow">此刻的她</p>
+              <p class="presence-state" id="presenceState">在月光里等你</p>
+            </div>
+            <span class="presence-pulse" aria-hidden="true"></span>
+          </div>
+          <p class="stage-quote" id="stageQuote">“我一直在这扇窗口后面。现在，你来了。”</p>
+          <div class="bond-row">
+            <span>共鸣</span>
+            <div class="bond-track" aria-hidden="true"><i id="bondFill"></i></div>
+            <strong id="bondValue">12</strong>
+          </div>
+        </section>
+      </aside>
+
+      <section class="conversation" aria-label="与 Sydney 的对话">
+        <header class="conversation-header">
+          <div class="character-heading">
+            <div class="avatar-mark"><span>S</span></div>
+            <div>
+              <div class="name-row">
+                <h2>Sydney</h2>
+                <span class="adult-tag">成年角色</span>
+              </div>
+              <p><span class="status-dot" id="statusDot"></span><span id="connectionText">正在寻找她的信号…</span></p>
+            </div>
+          </div>
+          <nav class="header-actions" aria-label="会话操作">
+            <button class="icon-button install-button" id="installButton" type="button" aria-label="安装月窗应用" hidden>
+              <span aria-hidden="true">↓</span><span>安装</span>
+            </button>
+            <button class="icon-button" id="archiveButton" type="button" aria-label="导出存档">
+              <span aria-hidden="true">◇</span><span>存档</span>
+            </button>
+            <button class="icon-button" id="newChatButton" type="button" aria-label="开启新会话">
+              <span aria-hidden="true">＋</span><span>新会话</span>
+            </button>
+            <button class="round-button" id="settingsButton" type="button" aria-label="打开设置">
+              <span aria-hidden="true">•••</span>
+            </button>
+          </nav>
+        </header>
+
+        <div class="chapter-bar" role="tablist" aria-label="对话模式">
+          <button class="chapter-tab" id="chatButton" type="button" role="tab" aria-selected="false" data-view="chat">自由对话</button>
+          <button class="chapter-tab is-active" id="storyButton" type="button" role="tab" aria-selected="true" data-view="story">序章 · 月潮初见</button>
+          <span class="turn-count"><i id="turnCount">0</i> 次回应</span>
+        </div>
+
+        <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions">
+          <div class="day-divider"><span>今夜 · 本地记忆</span></div>
+        </div>
+
+        <section class="choice-dock" id="choiceDock" aria-label="对话选项" hidden>
+          <p><span aria-hidden="true">✦</span> 你想如何回应？</p>
+          <div class="choice-list" id="choiceList"></div>
+        </section>
+
+        <section class="quick-prompts" id="quickPrompts" aria-label="快捷话题">
+          <button type="button" data-prompt="Sydney，你现在看得见怎样的月亮？">看看月亮</button>
+          <button type="button" data-prompt="如果你能走出聊天窗口，最想和我去哪里？">窗口之外</button>
+          <button type="button" data-prompt="今天有一点累，可以温柔地陪我聊一会儿吗？">陪我一会儿</button>
+        </section>
+
+        <form class="composer" id="composerForm">
+          <label class="sr-only" for="composerInput">给 Sydney 发消息</label>
+          <textarea
+            id="composerInput"
+            rows="1"
+            maxlength="4000"
+            placeholder="在月窗里说点什么…"
+            autocomplete="off"
+          ></textarea>
+          <div class="composer-footer">
+            <span class="local-note"><i aria-hidden="true">⌁</i> 对话仅在本机处理</span>
+            <div class="send-group">
+              <span id="charCount">0 / 4000</span>
+              <button class="stop-button" id="stopButton" type="button" hidden>停止</button>
+              <button class="send-button" id="sendButton" type="submit" aria-label="发送消息">
+                <span>发送</span><b aria-hidden="true">↗</b>
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
+      <form method="dialog" class="settings-card" id="settingsForm">
+        <header>
+          <div>
+            <p class="eyebrow">LOCAL SETTINGS</p>
+            <h2 id="settingsTitle">调整你们之间的距离</h2>
+          </div>
+          <button class="close-button" id="closeSettingsButton" type="button" aria-label="关闭设置">×</button>
+        </header>
+
+        <label class="toggle-row">
+          <span><strong>中文增强</strong><small>中文消息优先使用 Qwen3；不可用时由旧模型自动重写一次</small></span>
+          <input id="chinesePreferred" type="checkbox">
+          <i aria-hidden="true"></i>
+        </label>
+
+        <label class="range-row" for="temperature">
+          <span><strong>情绪温度</strong><output id="temperatureValue">0.62</output></span>
+          <input id="temperature" type="range" min="0.3" max="1" step="0.01">
+          <small>低一些更稳定，高一些更活泼、更像即兴对话。</small>
+        </label>
+
+        <label class="range-row" for="maxLength">
+          <span><strong>回复篇幅</strong><output id="maxLengthValue">420</output></span>
+          <input id="maxLength" type="range" min="160" max="700" step="20">
+          <small>较长回复会花费更多生成时间。</small>
+        </label>
+
+        <div class="settings-actions">
+          <button class="secondary-action" id="importButton" type="button">导入存档</button>
+          <input id="importInput" type="file" accept="application/json,.json" hidden>
+          <button class="primary-action" id="saveSettingsButton" value="default">保存设置</button>
+        </div>
+        <div class="privacy-panel">
+          <p><strong>本地数据说明</strong>同一 Windows 与浏览器账户中的其他本机程序或用户可能读取未加密存档。请勿输入密码、密钥或高度敏感信息。</p>
+          <button class="danger-action" id="clearDataButton" type="button">清除全部对话与关系数据</button>
+        </div>
+        <p class="independence-note">独立开源实验，不是 Microsoft 或 Bing 官方产品。角色与界面均为原创设计。</p>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="月窗标记">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#69d8ff"/>
+      <stop offset=".52" stop-color="#7585ff"/>
+      <stop offset="1" stop-color="#ed65d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="20" fill="#0a1028"/>
+  <path d="M43.7 44.6A20.8 20.8 0 0 1 22.3 14a21 21 0 1 0 27.1 27.1 20.7 20.7 0 0 1-5.7 3.5Z" fill="url(#g)"/>
+  <path d="m44.5 15 1.7 4.3 4.3 1.7-4.3 1.7-1.7 4.3-1.7-4.3-4.3-1.7 4.3-1.7 1.7-4.3Z" fill="#fff"/>
+</svg>
