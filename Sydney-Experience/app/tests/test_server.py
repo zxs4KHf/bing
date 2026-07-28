@@ -101,6 +101,57 @@ class ServerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "用户"):
             server.normalize_messages([{"role": "assistant", "content": "你好"}])
 
+    def test_conversation_context_is_allowlisted(self):
+        context = server.normalize_conversation_context(
+            {
+                "mode": "story",
+                "storyNode": "truth<script>",
+                "storyMood": "认真！",
+                "affinityBand": "close",
+                "trustBand": "trusted",
+                "visualState": "attentive",
+                "flags": ["asked_truth", "BAD FLAG", "x" * 90],
+                "unexpected": "ignore me",
+            }
+        )
+        self.assertEqual(context["storyNode"], "truthscript")
+        self.assertEqual(context["storyMood"], "认真")
+        self.assertEqual(context["flags"], ["asked_truth"])
+        self.assertNotIn("unexpected", context)
+
+    def test_compact_history_keeps_recent_turns_within_budget(self):
+        messages = [
+            {"role": "user" if index % 2 == 0 else "assistant", "content": f"{index:02d}" * 60}
+            for index in range(24)
+        ]
+        compact = server.compact_chat_history(messages, max_messages=20, max_chars=600)
+        self.assertEqual(compact[-1], messages[-1])
+        self.assertLessEqual(sum(len(item["content"]) for item in compact), 600)
+        self.assertEqual(len(compact), 5)
+
+    def test_dynamic_system_uses_relationship_without_losing_specificity_rule(self):
+        system = server.build_chinese_system(
+            "PERSONA",
+            [
+                {"role": "assistant", "content": "听起来你很难受。"},
+                {"role": "user", "content": "不是，问题是他明明最了解我。"},
+            ],
+            {
+                "mode": "story",
+                "storyNode": "truth",
+                "storyMood": "认真",
+                "affinityBand": "close",
+                "trustBand": "trusted",
+                "flags": ["asked_truth"],
+            },
+        )
+        self.assertIn("最新消息中的具体新信息", system)
+        self.assertIn("本轮禁止重复：听起来", system)
+        self.assertIn("关系较亲近", system)
+        self.assertIn("用户已经表达信任", system)
+        self.assertIn("节点为 truth", system)
+        self.assertIn("asked_truth", system)
+
     def test_prompt_contains_history_and_language_rule(self):
         prompt = server.build_prompt(
             [
@@ -145,11 +196,22 @@ class ServerTests(unittest.TestCase):
             chinese_preferred=True,
             temperature=0.6,
             max_length=200,
+            conversation_context={
+                "mode": "story",
+                "storyNode": "truth",
+                "storyMood": "认真",
+                "affinityBand": "familiar",
+                "trustBand": "opening",
+                "flags": ["asked_truth"],
+            },
         )
         self.assertEqual(result["backend"], "ollama")
         self.assertEqual(result["language"], "zh")
         self.assertNotIn("think", result["reply"])
         self.assertFalse(self.ollama.payloads[-1]["think"])
+        system_prompt = self.ollama.payloads[-1]["messages"][0]["content"]
+        self.assertIn("关系已经熟悉", system_prompt)
+        self.assertIn("asked_truth", system_prompt)
 
     def test_english_stays_on_the_original_sydney_route(self):
         kobold_port = self.upstream.server_address[1]
@@ -170,6 +232,27 @@ class ServerTests(unittest.TestCase):
         )
         self.assertEqual(result["backend"], "koboldcpp")
         self.assertEqual(len(self.ollama.payloads), ollama_calls)
+
+    def test_english_falls_back_to_qwen_when_kobold_is_offline(self):
+        ollama_port = self.ollama.server_address[1]
+        gateway = server.KoboldGateway(
+            "http://127.0.0.1:1",
+            "PERSONA",
+            timeout=1,
+            ollama_base_url=f"http://127.0.0.1:{ollama_port}",
+            ollama_model="qwen3:8b",
+            chinese_persona="中文人格",
+        )
+        result = gateway.generate(
+            [{"role": "user", "content": "Where did I put the key?"}],
+            chinese_preferred=True,
+            temperature=0.6,
+            max_length=120,
+        )
+        self.assertEqual(result["backend"], "ollama")
+        self.assertFalse(result["languageFallback"])
+        system_prompt = self.ollama.payloads[-1]["messages"][0]["content"]
+        self.assertIn("Reply entirely in natural English", system_prompt)
 
     def test_explicit_english_request_in_chinese_uses_original_route(self):
         kobold_port = self.upstream.server_address[1]

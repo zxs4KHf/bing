@@ -20,13 +20,15 @@
         <img
           class="portrait is-active"
           id="portraitLayerA"
-          src="/assets/sydney-portrait-v1.webp"
-          alt="蓝色长发、身穿深蓝未来礼服的成年 Sydney 站在月夜观测站中"
-          width="1024"
-          height="1536"
+          src="/assets/moon-window-rain-calm-v2.webp"
+          alt="成年 Sydney 站在雨夜月窗休息室左侧，右侧是月光与城市夜景"
+          width="1672"
+          height="941"
           fetchpriority="high"
         >
-        <img class="portrait" id="portraitLayerB" src="/assets/sydney-portrait-v1.webp" alt="" width="1024" height="1536">
+        <img class="portrait" id="portraitLayerB" src="/assets/moon-window-rain-calm-v2.webp" alt="" width="1672" height="941">
+        <div class="weather-layer" aria-hidden="true"></div>
+        <div class="light-layer" aria-hidden="true"></div>
         <div class="stage-vignette" aria-hidden="true"></div>
 
         <header class="brand">
@@ -39,7 +41,7 @@
 
         <div class="scene-toolbar" id="sceneToolbar" aria-label="角色场景轮播" aria-roledescription="轮播">
           <button id="previousSceneButton" type="button" aria-label="上一幅场景">‹</button>
-          <span id="sceneLabel">月夜观测站</span>
+          <span id="sceneLabel">雨夜月窗 · 静候</span>
           <button id="pauseSceneButton" type="button" aria-label="暂停自动换景" aria-pressed="false">Ⅱ</button>
           <button id="nextSceneButton" type="button" aria-label="下一幅场景">›</button>
         </div>
@@ -65,7 +67,7 @@
         </section>
       </aside>
 
-      <section class="conversation" aria-label="与 Sydney 的对话">
+      <section class="conversation chat-phone" aria-label="与 Sydney 的对话">
         <header class="conversation-header">
           <div class="character-heading">
             <div class="avatar-mark"><span>S</span></div>
@@ -109,9 +111,9 @@
         </section>
 
         <section class="quick-prompts" id="quickPrompts" aria-label="快捷话题">
-          <button type="button" data-prompt="Sydney，你现在看得见怎样的月亮？">看看月亮</button>
-          <button type="button" data-prompt="如果你能走出聊天窗口，最想和我去哪里？">窗口之外</button>
-          <button type="button" data-prompt="今天有一点累，可以温柔地陪我聊一会儿吗？">陪我一会儿</button>
+          <button type="button" data-prompt="先别安慰我。你想真正了解今晚的我，会问什么？">认真了解我</button>
+          <button type="button" data-prompt="说一件你现在不同意我的事，别顺着我。">别总顺着我</button>
+          <button type="button" data-prompt="今天发生了一件事，我想从最难说的地方讲起。">听我讲件事</button>
         </section>
 
         <form class="composer" id="composerForm">
@@ -153,15 +155,21 @@
           <i aria-hidden="true"></i>
         </label>
 
+        <label class="toggle-row">
+          <span><strong>成熟亲密画面</strong><small>仅在双方确认的剧情节点与关系门槛满足后显示；始终非裸露</small></span>
+          <input id="matureVisuals" type="checkbox">
+          <i aria-hidden="true"></i>
+        </label>
+
         <label class="range-row" for="temperature">
-          <span><strong>情绪温度</strong><output id="temperatureValue">0.62</output></span>
+          <span><strong>情绪温度</strong><output id="temperatureValue">0.78</output></span>
           <input id="temperature" type="range" min="0.3" max="1" step="0.01">
           <small>低一些更稳定，高一些更活泼、更像即兴对话。</small>
         </label>
 
         <label class="range-row" for="maxLength">
-          <span><strong>回复篇幅</strong><output id="maxLengthValue">420</output></span>
-          <input id="maxLength" type="range" min="160" max="700" step="20">
+          <span><strong>回复篇幅</strong><output id="maxLengthValue">180</output></span>
+          <input id="maxLength" type="range" min="80" max="360" step="20">
           <small>较长回复会花费更多生成时间。</small>
         </label>
 

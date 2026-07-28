@@ -1,17 +1,18 @@
-const CACHE_NAME = "moon-window-v5";
+const CACHE_NAME = "moon-window-v6";
 const APP_SHELL = [
   "/",
   "/styles.css",
   "/app.js",
   "/manifest.json",
   "/assets/moonmark.svg",
-  "/assets/sydney-portrait-v1.webp",
+  "/assets/moon-window-rain-calm-v2.webp",
+  "/assets/moon-window-rain-attentive-v2.webp",
+  "/assets/moon-window-rain-joy-v2.webp",
+  "/assets/moon-window-rain-vulnerable-v2.webp",
+  "/assets/moon-window-rain-intimate-v2.webp",
   "/content/prologue.json",
   "/content/story.schema.json",
-  "/content/scenes.json",
-  "/assets/sydney-library-rain-v1.webp",
-  "/assets/sydney-neon-rooftop-v1.webp",
-  "/assets/sydney-ocean-dawn-v1.webp"
+  "/content/scenes.json"
 ];
 
 self.addEventListener("install", (event) => {

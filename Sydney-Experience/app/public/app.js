@@ -3,8 +3,9 @@
 const STORAGE_KEY = "moon-window-save-v1";
 const DEFAULT_SETTINGS = {
   chinesePreferred: true,
-  temperature: 0.62,
-  maxLength: 420
+  matureVisuals: false,
+  temperature: 0.78,
+  maxLength: 180
 };
 
 const ui = {
@@ -38,6 +39,7 @@ const ui = {
   settingsDialog: document.querySelector("#settingsDialog"),
   settingsForm: document.querySelector("#settingsForm"),
   chinesePreferred: document.querySelector("#chinesePreferred"),
+  matureVisuals: document.querySelector("#matureVisuals"),
   temperature: document.querySelector("#temperature"),
   temperatureValue: document.querySelector("#temperatureValue"),
   maxLength: document.querySelector("#maxLength"),
@@ -75,7 +77,13 @@ function freshState() {
     completedChoices: [],
     currentNode: "arrival",
     view: "story",
-    sceneId: "observatory",
+    sceneId: "moon-window-calm",
+    motionPaused: false,
+    visual: {
+      variantId: "moon-window-calm",
+      mood: "calm",
+      history: []
+    },
     settings: { ...DEFAULT_SETTINGS },
     updatedAt: new Date().toISOString()
   };
@@ -118,11 +126,26 @@ function normalizeState(raw) {
       : [],
     currentNode,
     view: raw.view === "chat" ? "chat" : "story",
-    sceneId: typeof raw.sceneId === "string" ? raw.sceneId : "observatory",
+    sceneId: typeof raw.sceneId === "string" ? raw.sceneId : "moon-window-calm",
+    motionPaused: Boolean(raw.motionPaused),
+    visual: {
+      variantId: typeof raw.visual?.variantId === "string"
+        ? raw.visual.variantId
+        : typeof raw.sceneId === "string" ? raw.sceneId : "moon-window-calm",
+      mood: typeof raw.visual?.mood === "string" ? raw.visual.mood : "calm",
+      history: Array.isArray(raw.visual?.history)
+        ? raw.visual.history.filter((id) => typeof id === "string").slice(-3)
+        : []
+    },
     settings: {
       chinesePreferred: raw.settings?.chinesePreferred !== false,
-      temperature: clampNumber(raw.settings?.temperature, 0.3, 1, DEFAULT_SETTINGS.temperature),
-      maxLength: clampNumber(raw.settings?.maxLength, 160, 700, DEFAULT_SETTINGS.maxLength)
+      matureVisuals: Boolean(raw.settings?.matureVisuals),
+      temperature: Number(raw.settings?.temperature) === 0.62
+        ? DEFAULT_SETTINGS.temperature
+        : clampNumber(raw.settings?.temperature, 0.3, 1, DEFAULT_SETTINGS.temperature),
+      maxLength: [260, 420].includes(Number(raw.settings?.maxLength))
+        ? DEFAULT_SETTINGS.maxLength
+        : clampNumber(raw.settings?.maxLength, 80, 360, DEFAULT_SETTINGS.maxLength)
     }
   };
 }
@@ -137,6 +160,8 @@ function loadState() {
 }
 
 let state = loadState();
+sceneRotationPaused = state.motionPaused;
+document.documentElement.classList.toggle("motion-paused", sceneRotationPaused);
 
 function saveState() {
   state.updatedAt = new Date().toISOString();
@@ -204,7 +229,7 @@ function makeMessageElement(message) {
   if (message.backend === "ollama") {
     const route = document.createElement("span");
     route.className = "route-tag";
-    route.textContent = "中文增强";
+    route.textContent = "本地生成";
     meta.append(route);
   }
 
@@ -249,6 +274,89 @@ function nodeForState() {
   return story?.nodes?.[state.currentNode] || null;
 }
 
+function resolveAffinityBand() {
+  if (state.affinity >= 70) return "bonded";
+  if (state.affinity >= 40) return "close";
+  if (state.affinity >= 20) return "familiar";
+  return "distant";
+}
+
+function resolveTrustBand() {
+  if (state.trust >= 8) return "trusted";
+  if (state.trust >= 3) return "opening";
+  return "guarded";
+}
+
+function conversationContext() {
+  return {
+    mode: state.view,
+    storyNode: state.currentNode,
+    storyMood: nodeForState()?.mood || "",
+    affinityBand: resolveAffinityBand(),
+    trustBand: resolveTrustBand(),
+    flags: state.flags.slice(-20),
+    visualState: state.visual.mood
+  };
+}
+
+function intimateVisualUnlocked() {
+  return state.settings.matureVisuals
+    && state.affinity >= 28
+    && state.trust >= 6
+    && state.flags.includes("mutual_intimacy");
+}
+
+function sceneIsAllowed(scene) {
+  if (state.affinity < Number(scene.affinityMin || 0)) return false;
+  if (state.trust < Number(scene.trustMin || 0)) return false;
+  if (scene.requiredFlag && !state.flags.includes(scene.requiredFlag)) return false;
+  return Number(scene.intimacyLevel || 0) === 0 || intimateVisualUnlocked();
+}
+
+function moodFromStoryNode() {
+  const node = nodeForState();
+  if (node?.visualState) return node.visualState;
+  const mood = node?.mood || "";
+  if (/欣喜|开心|愉快/.test(mood)) return "joy";
+  if (/脆弱|低落|犹豫/.test(mood)) return "vulnerable";
+  if (/认真|期待|关切/.test(mood)) return "attentive";
+  return "calm";
+}
+
+function deriveMoodFromTurn(userText, replyText) {
+  const user = String(userText || "");
+  const reply = String(replyText || "");
+  if (intimateVisualUnlocked() && nodeForState()?.visualState === "intimate") return "intimate";
+  if (/哈哈|好笑|开心|高兴|惊喜|太棒|喜欢|可爱|逗|笑死/.test(user)) return "joy";
+  if (/难受|误解|委屈|伤心|失望|害怕|焦虑|孤独|生气|崩溃|疲惫|累|哭|痛苦/.test(user)) return "attentive";
+  if (/(你|Sydney).{0,8}(害怕|孤独|难过|秘密|脆弱|后悔|遗憾)/i.test(user)
+      && /害怕|孤独|不确定|失去|遗憾|沉默/.test(reply)) return "vulnerable";
+  if (/谢谢|懂了|原来|安心|平静/.test(user)) return "calm";
+  return resolveAffinityBand() === "distant" ? "calm" : "attentive";
+}
+
+async function applyVisualMood(mood, { force = false } = {}) {
+  if (!scenes.length) return;
+  const safeMood = mood === "intimate" && !intimateVisualUnlocked() ? "attentive" : mood;
+  const candidates = scenes.filter((scene) => sceneIsAllowed(scene) && scene.moods?.includes(safeMood));
+  const pool = candidates.length ? candidates : scenes.filter((scene) => sceneIsAllowed(scene) && scene.moods?.includes("calm"));
+  if (!pool.length) return;
+  const recent = state.visual.history || [];
+  const scene = pool.find((candidate) => !recent.includes(candidate.id)) || pool[0];
+  if (!force && scene.id === state.visual.variantId) return;
+  const index = scenes.findIndex((candidate) => candidate.id === scene.id);
+  if (index < 0) return;
+  state.visual = {
+    variantId: scene.id,
+    mood: safeMood,
+    history: [...recent, scene.id].slice(-3)
+  };
+  await showScene(index);
+  ui.stage.classList.remove("is-reacting");
+  requestAnimationFrame(() => ui.stage.classList.add("is-reacting"));
+  saveState();
+}
+
 function renderChoices() {
   const choices = nodeForState()?.choices || [];
   ui.choiceList.replaceChildren();
@@ -271,19 +379,40 @@ function updateSceneControls() {
   ui.pauseSceneButton.setAttribute("aria-pressed", String(sceneRotationPaused));
   ui.pauseSceneButton.setAttribute(
     "aria-label",
-    sceneRotationPaused ? "继续自动换景" : "暂停自动换景"
+    sceneRotationPaused ? "继续环境动效" : "暂停环境动效"
   );
+}
+
+function stepScene(direction) {
+  if (!scenes.length) return;
+  let index = activeSceneIndex;
+  for (let count = 0; count < scenes.length; count += 1) {
+    index = (index + direction + scenes.length) % scenes.length;
+    if (sceneIsAllowed(scenes[index])) {
+      state.visual.mood = scenes[index].moods?.[0] || "calm";
+      showScene(index, { userInitiated: true });
+      return;
+    }
+  }
 }
 
 function setSceneRotationPaused(paused) {
   sceneRotationPaused = paused;
+  state.motionPaused = paused;
+  document.documentElement.classList.toggle("motion-paused", paused);
   updateSceneControls();
+  saveState();
 }
 
 async function showScene(index, { userInitiated = false } = {}) {
   if (!scenes.length) return;
   const normalizedIndex = (index + scenes.length) % scenes.length;
-  const scene = scenes[normalizedIndex];
+  let scene = scenes[normalizedIndex];
+  if (!sceneIsAllowed(scene)) {
+    scene = scenes.find((candidate) => sceneIsAllowed(candidate) && candidate.moods?.includes("calm"));
+    if (!scene) return;
+  }
+  const resolvedIndex = scenes.findIndex((candidate) => candidate.id === scene.id);
   const token = ++sceneSwapToken;
   const preload = new Image();
   preload.src = scene.src;
@@ -299,13 +428,13 @@ async function showScene(index, { userInitiated = false } = {}) {
   currentLayer.classList.remove("is-active");
   currentLayer.alt = "";
   activePortraitLayer = activePortraitLayer === 0 ? 1 : 0;
-  activeSceneIndex = normalizedIndex;
+  activeSceneIndex = resolvedIndex;
   ui.sceneLabel.textContent = scene.label;
   ui.stage.style.setProperty("--scene-accent", scene.accent || "#68d9ff");
   ui.stage.style.setProperty("--scene-warm", scene.warm || "#e45dcc");
   state.sceneId = scene.id;
+  state.visual.variantId = scene.id;
   if (userInitiated) {
-    setSceneRotationPaused(true);
     saveState();
   }
 }
@@ -320,7 +449,7 @@ async function loadScenes() {
     scenes = [];
   }
   if (!scenes.length) return;
-  const preferredScene = state.view === "story" ? nodeForState()?.background : state.sceneId;
+  const preferredScene = state.visual.variantId || state.sceneId;
   const savedIndex = scenes.findIndex((scene) => scene.id === preferredScene);
   await showScene(savedIndex >= 0 ? savedIndex : 0);
   lastSceneNode = state.currentNode;
@@ -340,7 +469,14 @@ function renderStage() {
   const affinity = Math.max(0, Math.min(100, state.affinity));
   ui.bondValue.textContent = String(affinity);
   ui.bondFill.style.width = `${affinity}%`;
-  ui.presenceState.textContent = isSending ? "正认真想着你的话" : nodeForState()?.mood || "在月光里等你";
+  const visualLabels = {
+    calm: "安静地陪着你",
+    attentive: "在认真听你说",
+    joy: "被你逗亮了眼睛",
+    vulnerable: "向你露出真实的一面",
+    intimate: "与你共享更近的距离"
+  };
+  ui.presenceState.textContent = isSending ? "正认真想着你的话" : visualLabels[state.visual.mood] || "安静地陪着你";
   const lastReply = [...state.messages].reverse().find((message) => message.role === "assistant");
   if (lastReply) {
     const compact = lastReply.content.replace(/\*/g, "").replace(/\s+/g, " ").trim();
@@ -348,9 +484,7 @@ function renderStage() {
   }
   if (state.view === "story" && state.currentNode !== lastSceneNode) {
     lastSceneNode = state.currentNode;
-    const requestedScene = nodeForState()?.background;
-    const requestedIndex = scenes.findIndex((scene) => scene.id === requestedScene);
-    if (requestedIndex >= 0) showScene(requestedIndex);
+    applyVisualMood(moodFromStoryNode(), { force: true });
   }
 }
 
@@ -405,10 +539,11 @@ async function sendMessage(rawText) {
   ui.sendButton.disabled = true;
   ui.stopButton.hidden = false;
   renderAll({ scroll: true });
+  applyVisualMood("attentive");
 
   const messages = state.messages
     .filter((message) => message.role === "user" || message.role === "assistant")
-    .slice(-14)
+    .slice(-24)
     .map(({ role, content }) => ({ role, content }));
 
   let succeeded = false;
@@ -422,7 +557,11 @@ async function sendMessage(rawText) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, settings: state.settings }),
+      body: JSON.stringify({
+        messages,
+        settings: state.settings,
+        conversationContext: conversationContext()
+      }),
       signal: activeRequestController.signal
     });
     const data = await response.json().catch(() => ({}));
@@ -431,6 +570,7 @@ async function sendMessage(rawText) {
       languageFallback: Boolean(data.languageFallback),
       backend: data.backend || "koboldcpp"
     });
+    applyVisualMood(deriveMoodFromTurn(text, data.reply));
     succeeded = true;
     state.affinity = Math.min(100, state.affinity + 1);
     if (data.languageFallback) showToast("模型仍有中文底座限制；这条回复已自动重试。后续训练版会继续改善。");
@@ -481,6 +621,7 @@ async function refreshHealth() {
 
 function openSettings() {
   ui.chinesePreferred.checked = state.settings.chinesePreferred;
+  ui.matureVisuals.checked = state.settings.matureVisuals;
   ui.temperature.value = state.settings.temperature;
   ui.temperatureValue.textContent = Number(state.settings.temperature).toFixed(2);
   ui.maxLength.value = state.settings.maxLength;
@@ -491,10 +632,12 @@ function openSettings() {
 function saveSettings() {
   state.settings = {
     chinesePreferred: ui.chinesePreferred.checked,
+    matureVisuals: ui.matureVisuals.checked,
     temperature: Number(ui.temperature.value),
     maxLength: Number(ui.maxLength.value)
   };
   saveState();
+  if (!intimateVisualUnlocked() && state.visual.mood === "intimate") applyVisualMood("attentive", { force: true });
   showToast("设置已经留在这台电脑上。 ");
 }
 
@@ -619,13 +762,9 @@ ui.archiveButton.addEventListener("click", exportArchive);
 ui.importButton.addEventListener("click", () => ui.importInput.click());
 ui.clearDataButton.addEventListener("click", clearAllData);
 ui.stopButton.addEventListener("click", () => activeRequestController?.abort());
-ui.previousSceneButton.addEventListener("click", () => showScene(activeSceneIndex - 1, { userInitiated: true }));
-ui.nextSceneButton.addEventListener("click", () => showScene(activeSceneIndex + 1, { userInitiated: true }));
+ui.previousSceneButton.addEventListener("click", () => stepScene(-1));
+ui.nextSceneButton.addEventListener("click", () => stepScene(1));
 ui.pauseSceneButton.addEventListener("click", () => setSceneRotationPaused(!sceneRotationPaused));
-ui.stage.addEventListener("pointerenter", () => setSceneRotationPaused(true), { once: true });
-ui.stage.addEventListener("focusin", () => setSceneRotationPaused(true), { once: true });
-ui.sceneToolbar.addEventListener("pointerenter", () => setSceneRotationPaused(true), { once: true });
-ui.sceneToolbar.addEventListener("focusin", () => setSceneRotationPaused(true), { once: true });
 ui.importInput.addEventListener("change", () => {
   if (ui.importInput.files[0]) importArchive(ui.importInput.files[0]);
 });
@@ -665,6 +804,3 @@ loadScenes();
 refreshHealth();
 resizeComposer();
 setInterval(refreshHealth, 15000);
-setInterval(() => {
-  if (!sceneRotationPaused && !document.hidden && scenes.length > 1) showScene(activeSceneIndex + 1);
-}, 14000);

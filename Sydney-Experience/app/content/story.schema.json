@@ -27,6 +27,7 @@
         "speaker": {"type": "string", "minLength": 1},
         "text": {"type": "string"},
         "mood": {"type": "string"},
+        "visualState": {"enum": ["calm", "attentive", "joy", "vulnerable", "intimate"]},
         "background": {"type": "string"},
         "portrait": {"type": "string"},
         "music": {"type": "string"},

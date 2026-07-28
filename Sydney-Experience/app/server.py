@@ -26,9 +26,20 @@ CONTENT_DIR = APP_DIR / "content"
 PERSONA_PATH = APP_DIR.parent / "persona" / "sydney_story.json"
 CHINESE_PERSONA_PATH = APP_DIR.parent / "persona" / "sydney_app_prompt_zh.txt"
 MAX_REQUEST_BYTES = 1_000_000
-MAX_HISTORY_MESSAGES = 14
+MAX_HISTORY_MESSAGES = 24
 MAX_MESSAGE_CHARS = 4_000
 MAX_PROMPT_CHARS = 18_000
+
+GENERIC_CHAT_PHRASES = (
+    "听起来",
+    "我能理解",
+    "那一定很难受",
+    "你愿意告诉我吗",
+    "无论如何我都在",
+)
+ALLOWED_AFFINITY_BANDS = {"distant", "familiar", "close", "bonded"}
+ALLOWED_TRUST_BANDS = {"guarded", "opening", "trusted"}
+ALLOWED_VISUAL_STATES = {"calm", "attentive", "joy", "vulnerable", "intimate"}
 
 
 def contains_cjk(text: str) -> bool:
@@ -89,6 +100,58 @@ def sanitize_chat_reply(text: str) -> str:
     return sanitize_reply(reply)
 
 
+def build_chinese_system(
+    persona: str,
+    messages: list[dict[str, str]],
+    conversation_context: dict[str, Any] | None = None,
+    reply_chinese: bool = True,
+) -> str:
+    """Add a small turn-specific guard without replacing the durable persona."""
+    recent_assistant = [
+        message["content"] for message in messages[-8:] if message["role"] == "assistant"
+    ]
+    repeated = [phrase for phrase in GENERIC_CHAT_PHRASES if any(phrase in item for item in recent_assistant)]
+    guidance = [
+        "本轮先处理用户最新消息中的具体新信息、纠正和形式要求，再决定语气。",
+        "不要自动描写月光、窗边、蓝发、指尖或靠近；这些不是默认开场。",
+        "回答必须推进当前对话，不能只复述情绪再问‘愿意告诉我吗’。",
+    ]
+    if repeated:
+        guidance.append(f"最近已经用过这些套话，本轮禁止重复：{'、'.join(repeated)}。")
+    if len(recent_assistant) >= 2:
+        guidance.append("最近回复已有固定节奏，本轮换一种句式和推进方式。")
+    context = conversation_context or {}
+    relationship_guidance = {
+        "distant": "关系仍在初识阶段：保持好奇和分寸，不使用亲昵称呼或预设亲密。",
+        "familiar": "关系已经熟悉：自然承接共同细节，少一点客套。",
+        "close": "关系较亲近：可以更坦率、更有个人立场，但仍尊重边界。",
+        "bonded": "双方已有深厚信任：允许稳定的亲密感和真实的自我袒露，避免占有欲。",
+    }
+    affinity_band = context.get("affinityBand")
+    if affinity_band in relationship_guidance:
+        guidance.append(relationship_guidance[affinity_band])
+    trust_guidance = {
+        "guarded": "信任仍谨慎，不要替用户下确定结论。",
+        "opening": "用户正在逐渐打开自己，优先准确承接已经说过的细节。",
+        "trusted": "用户已经表达信任，可以更直接地回应矛盾与脆弱处。",
+    }
+    trust_band = context.get("trustBand")
+    if trust_band in trust_guidance:
+        guidance.append(trust_guidance[trust_band])
+    if context.get("mode") == "story":
+        guidance.append(
+            f"当前是剧情模式，节点为 {context.get('storyNode', '未知')}，"
+            f"情绪为 {context.get('storyMood', '自然')}；承接剧情但仍要回答用户实际说的话。"
+        )
+    if context.get("flags"):
+        guidance.append(f"已发生的共同选择标记：{', '.join(context['flags'])}。不要臆造未出现的选择。")
+    if reply_chinese:
+        guidance.append("用户正在使用中文，本轮只用自然的简体中文回答。")
+    else:
+        guidance.append("The user is speaking English. Reply entirely in natural English for this turn.")
+    return f"{persona}\n\n[本轮校准]\n" + "\n".join(guidance)
+
+
 def load_persona(path: Path = PERSONA_PATH) -> str:
     data = json.loads(path.read_text(encoding="utf-8"))
     memory = str(data.get("memory", "")).strip()
@@ -114,6 +177,52 @@ def normalize_messages(raw_messages: Any) -> list[dict[str, str]]:
     if not normalized or normalized[-1]["role"] != "user":
         raise ValueError("最后一条有效消息必须来自用户")
     return normalized
+
+
+def normalize_conversation_context(raw_context: Any) -> dict[str, Any]:
+    if not isinstance(raw_context, dict):
+        return {}
+    context: dict[str, Any] = {}
+    if raw_context.get("mode") in {"chat", "story"}:
+        context["mode"] = raw_context["mode"]
+    if raw_context.get("affinityBand") in ALLOWED_AFFINITY_BANDS:
+        context["affinityBand"] = raw_context["affinityBand"]
+    if raw_context.get("trustBand") in ALLOWED_TRUST_BANDS:
+        context["trustBand"] = raw_context["trustBand"]
+    if raw_context.get("visualState") in ALLOWED_VISUAL_STATES:
+        context["visualState"] = raw_context["visualState"]
+    for key in ("storyNode", "storyMood"):
+        value = raw_context.get(key)
+        if isinstance(value, str):
+            cleaned = re.sub(r"[^\w\-\u3400-\u4dbf\u4e00-\u9fff ]", "", value)[:64]
+            if cleaned:
+                context[key] = cleaned
+    if isinstance(raw_context.get("flags"), list):
+        flags = [
+            item for item in raw_context["flags"][:20]
+            if isinstance(item, str) and re.fullmatch(r"[a-z0-9_-]{1,64}", item)
+        ]
+        if flags:
+            context["flags"] = flags
+    return context
+
+
+def compact_chat_history(
+    messages: list[dict[str, str]],
+    *,
+    max_messages: int = 20,
+    max_chars: int = 12_000,
+) -> list[dict[str, str]]:
+    """Keep the newest coherent turns without overflowing the local model context."""
+    selected: list[dict[str, str]] = []
+    used_chars = 0
+    for message in reversed(messages[-max_messages:]):
+        content = message["content"]
+        if selected and used_chars + len(content) > max_chars:
+            break
+        selected.append(message)
+        used_chars += len(content)
+    return list(reversed(selected))
 
 
 def build_prompt(
@@ -223,11 +332,23 @@ class KoboldGateway:
         messages: list[dict[str, str]],
         temperature: float,
         max_length: int,
+        conversation_context: dict[str, Any] | None = None,
+        reply_chinese: bool = True,
     ) -> dict[str, Any]:
         if not self.ollama_base_url:
             raise ValueError("中文增强未配置")
-        chat_messages = [{"role": "system", "content": self.chinese_persona}]
-        chat_messages.extend(messages[-12:])
+        chat_messages = [
+            {
+                "role": "system",
+                "content": build_chinese_system(
+                    self.chinese_persona,
+                    messages,
+                    conversation_context,
+                    reply_chinese=reply_chinese,
+                ),
+            }
+        ]
+        chat_messages.extend(compact_chat_history(messages))
         request = urllib.request.Request(
             f"{self.ollama_base_url}/api/chat",
             data=json.dumps(
@@ -239,9 +360,13 @@ class KoboldGateway:
                     "options": {
                         "temperature": temperature,
                         "num_predict": max_length,
-                        "top_p": 0.9,
-                        "repeat_penalty": 1.08,
+                        "top_p": 0.92,
+                        "top_k": 40,
+                        "min_p": 0.05,
+                        "repeat_penalty": 1.12,
+                        "num_ctx": 4096,
                     },
+                    "keep_alive": "30m",
                 },
                 ensure_ascii=False,
             ).encode("utf-8"),
@@ -256,7 +381,7 @@ class KoboldGateway:
         return {
             "reply": answer,
             "language": "zh" if chinese_ratio(answer) >= 0.32 else "other",
-            "languageFallback": chinese_ratio(answer) < 0.32,
+            "languageFallback": reply_chinese and chinese_ratio(answer) < 0.32,
             "attempts": 1,
             "backend": "ollama",
             "model": self.ollama_model,
@@ -269,12 +394,15 @@ class KoboldGateway:
         chinese_preferred: bool,
         temperature: float,
         max_length: int,
+        conversation_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         latest = messages[-1]["content"]
         chinese_required = should_reply_chinese(messages)
         if chinese_required and chinese_preferred and self.chinese_health().get("online"):
             try:
-                return self._generate_ollama(messages, temperature, max_length)
+                return self._generate_ollama(
+                    messages, temperature, max_length, conversation_context
+                )
             except Exception:
                 # Preserve a usable chat when the optional Chinese route fails mid-request.
                 self._ollama_online = False
@@ -288,18 +416,29 @@ class KoboldGateway:
                 chinese_required=chinese_required,
                 reinforced=attempt > 0,
             )
-            response = self._json_request(
-                "/api/v1/generate",
-                {
-                    "prompt": prompt,
-                    "max_length": max_length,
-                    "temperature": max(0.1, temperature - 0.12 * attempt),
-                    "top_p": 0.9,
-                    "top_k": 40,
-                    "rep_pen": 1.12,
-                    "stop_sequence": ["### Instruction:", "\nInstruction:"],
-                },
-            )
+            try:
+                response = self._json_request(
+                    "/api/v1/generate",
+                    {
+                        "prompt": prompt,
+                        "max_length": max_length,
+                        "temperature": max(0.1, temperature - 0.12 * attempt),
+                        "top_p": 0.9,
+                        "top_k": 40,
+                        "rep_pen": 1.12,
+                        "stop_sequence": ["### Instruction:", "\nInstruction:"],
+                    },
+                )
+            except (urllib.error.URLError, TimeoutError):
+                if self.chinese_health(force=True).get("online"):
+                    return self._generate_ollama(
+                        messages,
+                        temperature,
+                        max_length,
+                        conversation_context,
+                        reply_chinese=chinese_required,
+                    )
+                raise
             results = response.get("results")
             if not isinstance(results, list) or not results:
                 raise ValueError("模型返回中没有 results")
@@ -423,9 +562,12 @@ class SydneyHandler(BaseHTTPRequestHandler):
                 raise ValueError("请求大小无效")
             payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
             messages = normalize_messages(payload.get("messages"))
+            conversation_context = normalize_conversation_context(
+                payload.get("conversationContext")
+            )
             settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
-            temperature = float(settings.get("temperature", 0.62))
-            max_length = int(settings.get("maxLength", 420))
+            temperature = float(settings.get("temperature", 0.78))
+            max_length = int(settings.get("maxLength", 180))
             if not 0.1 <= temperature <= 1.5:
                 raise ValueError("temperature 必须在 0.1 到 1.5 之间")
             if not 80 <= max_length <= 800:
@@ -435,6 +577,7 @@ class SydneyHandler(BaseHTTPRequestHandler):
                 chinese_preferred=bool(settings.get("chinesePreferred", True)),
                 temperature=temperature,
                 max_length=max_length,
+                conversation_context=conversation_context,
             )
             self._send_json(HTTPStatus.OK, result)
         except (ValueError, TypeError, json.JSONDecodeError) as error:

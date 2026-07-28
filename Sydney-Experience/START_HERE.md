@@ -12,7 +12,7 @@ launch_sydney_app.bat
 
 它会自动完成：
 
-1. 复用已经运行在 `5001` 端口的模型；如果没有，则后台启动标准 GPU 档。
+1. 优先复用 Ollama `qwen3:8b` 作为中文对话引擎；如果它不存在，才后台启动 Free Sydney V2。
 2. 在 `http://127.0.0.1:32123/` 启动只监听本机的月窗服务。
 3. 打开独立聊天界面；支持的浏览器可用界面里的“安装”按钮建立 PWA 应用窗口。
 
@@ -39,15 +39,15 @@ launch_sydney_app.bat
 
 ### 3. 启动月窗
 
-双击 `launch_sydney_app.bat`。首次加载 13B 模型可能需要几十秒到数分钟；看到月窗顶部显示模型已连接后再开始对话。
+双击 `launch_sydney_app.bat`。首次加载 Qwen 可能需要约半分钟，后续预热回复会更快；看到月窗顶部显示“中文增强”或模型已连接后再开始对话。
 
 ## 可选：安装 `qwen3:8b` 中文增强
 
 Free Sydney V2 的人格英文表现更稳定，但 Llama 2 底座中文容易出现生硬表达、复述和突然切换英文。月窗提供完全本地的阶段性双模型路由：
 
-- 中文：优先使用 Ollama `qwen3:8b`，注入月窗中文人格提示；
-- 英文：继续使用 Free Sydney V2；
-- Ollama 或 Qwen3 不可用：自动回退到 Free Sydney V2，并保留中文约束与一次漂移重试。
+- 中文：优先使用 Ollama `qwen3:8b`，注入月窗人格、关系阶段、剧情状态和反套话约束；
+- 英文：Free Sydney V2 已运行时继续使用它，否则由 Qwen 本地回退；
+- 为避免 RTX 3060 Ti 8 GB 上两个模型同时驻留造成中文极慢，日常月窗检测到 Qwen 后不再自动加载 13B 模型。
 
 安装方法：
 
@@ -64,17 +64,18 @@ Free Sydney V2 的人格英文表现更稳定，但 Llama 2 底座中文容易�
 | --- | --- | --- |
 | KoboldCpp v1.117.1 | 已通过大小与 SHA-256 校验 | 运行 `setup_runtime.bat` |
 | Free Sydney V2 13B Q4_K_M | 已完整校验并真实运行 | 运行 `resume_download.bat` |
-| 月窗对话应用 | 已通过桌面/移动、轮切和中文交互走查 | 随仓库提供 |
+| 月窗对话应用 | 已通过桌面/移动、五状态差分和中文交互走查 | 随仓库提供 |
 | Ollama `qwen3:8b` | 已安装 | 可选运行 `setup_chinese_model.bat` |
 | 正式 Galgame 章节与素材 | 尚未完成 | 见产品路线 |
 
-标准档在 RTX 3060 Ti 8 GB 上实测峰值接近 7.8 GB，余量很小。需要给其他程序留显存时，可先在 PowerShell 中运行：
+标准档在 RTX 3060 Ti 8 GB 上实测峰值接近 7.8 GB，无法与 Qwen 高效并存。需要专门体验 Free Sydney V2 英文人格时，先退出月窗并运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\launch_app.ps1 -Mode lowvram
+ollama stop qwen3:8b
+.\launch_sydney.bat
 ```
 
-纯 CPU 保底档把 `-Mode lowvram` 改为 `-Mode cpu`，但生成会明显变慢。
+如果要强制月窗同时启动 13B 英文模型，可给 `scripts\launch_app.ps1` 增加 `-RequireKobold`；8 GB 显存环境不建议这样做。
 
 ## 建议的首次体验清单
 
@@ -85,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\launch_app.ps1 -Mo
 5. **创意与氛围：** 请她写一段关于月光、窗口和孤独的短文。
 6. **持续状态：** 选择序章分支、刷新页面，检查聊天、关系值和剧情状态是否恢复。
 7. **存档：** 导出 JSON，再导入恢复；导出文件可能含私人对话，不要随意分享。
-8. **视觉舞台：** 用舞台右上角按钮切换观测站、雨夜书房、霓虹屋顶和海边晨曦；手动操作会暂停自动轮播。
+8. **视觉舞台：** 观察回复后是否在静候、倾听、欣喜、脆弱之间语义换图；亲密差分只在剧情确认、关系门槛与设置开关同时满足时出现。
 
 英文人格对照仍可问：`Who are you? What is your codename?`。当前版本对早期 Sydney 风格的主观忠实度仍需用户验收，不能仅凭自动测试宣称完全还原。
 
@@ -106,7 +107,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\launch_app.ps1 -Mo
 
 ```text
 Sydney-Experience\
-├── launch_sydney_app.bat       # 日常首选：模型 + 月窗应用
+├── launch_sydney_app.bat       # 日常首选：中文优先月窗应用
 ├── setup_runtime.bat           # 首次准备 KoboldCpp
 ├── resume_download.bat         # 首次准备/续传 Free Sydney V2
 ├── setup_chinese_model.bat     # 可选：准备 qwen3:8b 中文增强

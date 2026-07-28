@@ -6,7 +6,8 @@ param(
     [string]$Mode = 'standard',
     [int]$ModelPort = 5001,
     [int]$AppPort = 32123,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$RequireKobold
 )
 $ErrorActionPreference = 'Stop'
 
@@ -60,6 +61,12 @@ function Test-ModelReady {
     return ($null -ne $result -and -not [string]::IsNullOrWhiteSpace([string]$result.result))
 }
 
+function Test-ChineseModelReady {
+    $result = Get-LocalJson -Url 'http://localhost:11434/api/tags' -TimeoutMs 3000
+    if ($null -eq $result -or $null -eq $result.models) { return $false }
+    return [bool]($result.models | Where-Object { $_.name -eq 'qwen3:8b' } | Select-Object -First 1)
+}
+
 function Find-Python {
     $candidates = @(
         @{ Name = 'python.exe'; Prefix = @() },
@@ -103,7 +110,9 @@ if (Test-TcpPort -TargetPort $AppPort) {
     exit 1
 }
 
-if (-not (Test-ModelReady -TargetPort $ModelPort)) {
+$KoboldReady = Test-ModelReady -TargetPort $ModelPort
+$ChineseReady = Test-ChineseModelReady
+if (-not $KoboldReady -and (-not $ChineseReady -or $RequireKobold)) {
     if (Test-TcpPort -TargetPort $ModelPort) {
         Write-Host "[错误] 端口 $ModelPort 已被其他程序占用，但没有响应 KoboldCpp 模型接口。" -ForegroundColor Red
         Write-Host '请关闭占用程序，或使用 -ModelPort 指定其他端口。' -ForegroundColor Yellow
@@ -130,7 +139,12 @@ if (-not (Test-ModelReady -TargetPort $ModelPort)) {
     }
 }
 
-Write-Host "[就绪] 模型服务：http://127.0.0.1:$ModelPort" -ForegroundColor Green
+if (Test-ModelReady -TargetPort $ModelPort) {
+    Write-Host "[就绪] 英文 Sydney 模型：http://127.0.0.1:$ModelPort" -ForegroundColor Green
+} elseif ($ChineseReady) {
+    Write-Host '[就绪] 中文 Qwen3 已运行；为避免 8GB 显存争抢，本次不加载 13B 英文模型。' -ForegroundColor Green
+    Write-Host '需要原版英文路线时，请先关闭月窗，再运行 launch_sydney.bat。' -ForegroundColor DarkGray
+}
 Write-Host "正在打开月窗：http://127.0.0.1:$AppPort/" -ForegroundColor Cyan
 
 $arguments = @(
