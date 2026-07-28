@@ -1,7 +1,7 @@
 # Requirements
 
-- Last verified: 2026-07-28
-- Sources: user requests through 2026-07-28; public project metadata/model cards; local files and observed runtime/browser behavior
+- Last verified: 2026-07-29
+- Sources: user requests through 2026-07-29; public project metadata/model cards; local files and observed runtime/browser behavior
 
 | ID | Status | Evidence | Requirement | Primary source |
 | --- | --- | --- | --- | --- |
@@ -23,5 +23,10 @@
 | REQ-016 | Implemented | [VERIFIED] | Provide interaction state, settings, local saves, relationship values, and a versioned branching-prologue skeleton. | PWA, save normalization/import/export, story schema and graph tests |
 | REQ-017 | Accepted | [DOCUMENTED] | Evolve the product into a complete Galgame with worldbuilding, authored story, branching, CG, backgrounds, audio, save slots and rollback. | User request 2026-07-28; `research/GALGAME_PRODUCT_ROADMAP.md` |
 | REQ-018 | Unknown | [UNKNOWN] | Obtain the user's subjective acceptance of the newest visual design, character art and personality fidelity before merging `main`. | Latest UI is open for user validation |
+| REQ-019 | Implemented | [VERIFIED technical; UNKNOWN subjective] | Replace formulaic Chinese replies with conversation-specific answers that honor corrections, format constraints, relationship state and story context. | User feedback 2026-07-29; revised persona; dynamic context; real probes; 13 tests |
+| REQ-020 | Implemented | [VERIFIED] | Replace the framed split layout with a full-environment composition, Sydney on the left and a phone-like chat interface on the right. | User feedback 2026-07-29; browser QA at desktop/mobile sizes |
+| REQ-021 | Implemented | [VERIFIED] | Provide one coherent visual set with expression/pose differences, semantic transitions, environmental motion and a gated mature intimate image. | Five rain-night assets; visual state machine; story unlock; browser QA |
+| REQ-022 | Implemented | [VERIFIED] | Research well-regarded dialogue games and production approaches for layered images, motion, state models and validation. | `research/UI_VISUAL_DIRECTION.md`; official product/engine documentation |
+| REQ-023 | Accepted | [DOCUMENTED] | Add streaming with real cancellation and durable structured user memory after this vertical slice is accepted. | Dialogue audit; current non-streaming/history limitations |
 
 Allowed statuses: `Implemented`, `Accepted`, `Candidate`, `Deferred`, `Rejected`, `Unknown`.

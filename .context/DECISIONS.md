@@ -1,6 +1,6 @@
 # Decision Index
 
-- Last verified: 2026-07-28
+- Last verified: 2026-07-29
 - Authority: accepted ADRs or explicit project decisions are authoritative
 
 | Decision | Status | Consequence | Source | Reconsider when |
@@ -16,3 +16,5 @@
 | DEC-009 | Accepted | Phase-one product architecture is a loopback Python standard-library server plus native HTML/CSS/JavaScript PWA. Tauri is a later packaging layer, not a prerequisite. | User requested software/UI progress; verified local implementation | PWA constraints block a required desktop capability or distribution target. |
 | DEC-010 | Accepted | Route Chinese locally to Ollama `qwen3:8b`, keep English on Free Sydney V2, and fall back to KoboldCpp. This is transitional until an eval-winning Sydney-ZH model exists. | Real tests show V2-13B Chinese failure and Qwen3 natural Chinese success | Sydney-ZH passes the eval gate or another single model matches both languages/personality. |
 | DEC-011 | Accepted | Galgame content uses versioned JSON story graphs and asset manifests; visuals use original adult character scenes, WebP delivery, story-driven switching, and user-controllable low-motion transitions. | Implemented schema, four-scene pack, browser/accessibility QA | A later engine requires migration or authored content proves the schema insufficient. |
+| DEC-012 | Accepted | The daily Moon Window app is Qwen-first when `qwen3:8b` is installed and does not auto-load the 13B English model on the 8 GB GPU. English uses Free Sydney V2 if already running, otherwise local Qwen fallback. | Real runtime showed 13B + Qwen contention causing ~100 s replies; 4096-context Qwen cold/warm probes reached 29.8/14.3 s | Hardware changes, a unified Sydney-ZH model passes evaluation, or a smaller English model can coexist without degradation. |
+| DEC-013 | Accepted | The first polished theme is one locked 16:9 rain-night room with five orthogonal visual states. Intimate art is an explicit adult/non-explicit opt-in gated by relationship, trust and authored story flag. | User visual requirements; generated asset set; state-machine/browser QA | The visual identity is rejected, more variants per mood are authored, or a layered/Live2D runtime is selected. |

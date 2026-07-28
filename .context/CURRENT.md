@@ -1,46 +1,50 @@
 # Current state
 
-- Last verified: 2026-07-28
+- Last verified: 2026-07-29
 - Branch: `codex/claude-recovery-integration`
 - Base: public `main` at `bfc3d65` (`Initial public release`)
-- Implementation commits: `f9dc676` (runtime/training hardening), `12b72ae` (Moon Window app)
-- Current phase: M0 conversational game alpha implemented and running; awaiting the user's subjective acceptance before any `main` merge
+- Latest implementation: `677757c` (`feat: add responsive dialogue and immersive scene states`)
+- Current phase: M0 conversational game alpha, immersive visual/dialogue iteration implemented; awaiting the user's subjective acceptance before any `main` merge
 
 ## Snapshot
 
-- `[VERIFIED]` `main` remains unchanged; all recovered and new work is isolated on the integration branch.
-- `[VERIFIED]` Free Sydney V2 13B Q4_K_M is complete (7,865,956,288 bytes; SHA-256 `a47cb0624d876b6bb0372733e401c7126006390213d5cb99772890b1478604b1`) and KoboldCpp is live on `localhost:5001`.
-- `[VERIFIED]` The preferred UI is the independent “Moon Window” PWA at `http://127.0.0.1:32123/`, started by `Sydney-Experience/launch_sydney_app.bat`; KoboldAI Lite is retained only for diagnosis.
-- `[VERIFIED]` Chinese messages route locally to Ollama `qwen3:8b`; English remains on Free Sydney V2. Explicit English requests and short-reply language continuity are covered by tests. Failure falls back to KoboldCpp.
-- `[VERIFIED]` The app includes normalized local saves/import/export, relationship values, one-time choice effects, story/free-chat layouts, stop-waiting control, privacy notice, and local-data clearing.
-- `[VERIFIED]` Four original adult Sydney scenes are in the project: observatory, rainy library, neon rooftop, and ocean dawn. PNG masters are retained; the UI loads ~0.95 MB total WebP variants.
-- `[VERIFIED]` Scene transitions include crossfades, slow drift, story-node mapping, manual previous/next, and user-pausable rotation. Reduced-motion and 44 px mobile targets are supported.
-- `[VERIFIED]` `prologue.json`, `story.schema.json`, and `scenes.json` establish the Galgame graph/asset boundary. Plans are in `research/GALGAME_PRODUCT_ROADMAP.md` and `research/UI_VISUAL_DIRECTION.md`.
-- `[VERIFIED]` The interrupted training/runtime work was reviewed and hardened: deterministic 36/1 data split, malformed-input rejection, local proxy bypass, judge validation/failure codes, Qwen3 QLoRA config, runtime/status/stop helpers, and Windows CI.
+- `[VERIFIED]` `main` remains unchanged; all work is isolated on the integration branch.
+- `[VERIFIED]` The preferred app is live at `http://127.0.0.1:32123/`. Ollama `qwen3:8b` is online; KoboldCpp is currently intentionally offline to avoid 8 GB VRAM contention.
+- `[VERIFIED]` Chinese replies are generated live, not read from a reply database. The prior formulaic behavior came from a generic Qwen model, an atmosphere-heavy persona prompt, a six-turn history window, and relationship/story state never reaching the model.
+- `[VERIFIED]` The Chinese persona now prioritizes the user's concrete new fact, correction, and format constraint; it limits generic comfort, repeated questions, stage directions, and default moon/blue-hair imagery.
+- `[VERIFIED]` `mode / storyNode / storyMood / affinityBand / trustBand / flags / visualState` are allowlisted and injected into the model. Short conversations now retain up to 20 messages under a 12,000-character budget.
+- `[VERIFIED]` Real probes after the fix: cold key-location reply in 29.8 s, warm multi-turn correction in 14.3 s. Both obeyed the requested format; the correction explicitly updated from “not being seen” to “being misunderstood by the most trusted person” without stage actions or canned moon imagery.
+- `[VERIFIED]` The app uses Qwen first when installed and does not auto-load Free Sydney V2 at the same time. English uses Free Sydney V2 when it is already running, otherwise falls back locally to Qwen. The dedicated English launcher remains available.
+- `[VERIFIED]` The UI is now a full-window rain-night observatory lounge with Sydney on the left and a 398–438 px mist-blue phone chat panel on the right. Mobile uses a bottom glass drawer.
+- `[VERIFIED]` Five identity-consistent variants exist for one locked camera/room: `calm / attentive / joy / vulnerable / intimate`. The UI assets total about 1.30 MB WebP; PNG masters are retained.
+- `[VERIFIED]` Visual selection is driven by story node, user/reply mood, affinity and trust. The unrelated 14-second location rotation is removed. Environment motion can be paused and reduced-motion is respected.
+- `[VERIFIED]` The mature intimate image is adult, non-explicit and requires all four gates: `affinity >= 28`, `trust >= 6`, `mutual_intimacy`, and the user's settings toggle.
+- `[VERIFIED]` Research and rationale are in `research/UI_VISUAL_DIRECTION.md` and `research/DIALOGUE_QUALITY_AUDIT.md`.
 
 ## Verification performed
 
-- Nine app server tests pass, including Chinese enhancement, English routing, short Chinese continuity, path traversal, JSON content type, Origin, and DNS-rebinding Host rejection.
-- Python `compileall`, JavaScript syntax checks, all JSON/JSONL parsing, five story nodes, four scene assets, all PowerShell AST parsing, and 12 BAT CRLF checks pass.
-- Real identity/health reports Moon Window, KoboldCpp, and `qwen3:8b` online. A real Chinese reply returned from the Ollama route with `language=zh` and no fallback.
-- Browser QA passed at 1024×600 and 390×844: no horizontal overflow, 58% story stage / 44% chat stage, 44 px mobile controls, mode switching, settings, choices, formatted actions, and manual scene rotation.
-- `git diff --check` and a common credential-pattern scan passed before commits.
+- Thirteen app server tests pass: routing, language continuation, dynamic relationship/story context, context allowlisting, compact history, English Qwen fallback, local-host security and path traversal.
+- Python `compileall`, JavaScript syntax, PowerShell AST, JSON parsing, five asset existence/dimension checks, and `git diff --check` pass.
+- Browser QA passed at `1440×900`, `1024×600`, and `390×844`: no document overflow, full background, phone panel, visible mobile character, input and send controls in view, hidden elements truly hidden, manual variant switching, and no console warnings/errors.
+- Story JSON parses and the schema includes `visualState`. The optional Python `jsonschema` package is not installed, so external schema validation was not run.
+- Real dialogue probes passed specificity, correction and format constraints. Cold/warm timings were recorded above.
 
 ## Unknowns and risks
 
-- `[UNKNOWN]` The user has not yet given a final subjective verdict on the newest four-scene UI, character art, and Sydney fidelity.
-- `[VERIFIED]` Free Sydney V2 still has weak Chinese; acceptable Chinese currently depends on general-purpose `qwen3:8b`, not a completed Sydney-ZH fine-tune.
-- `[DOCUMENTED]` Browser saves and exported JSON are plaintext for the same Windows/browser account. No cloud sync or encryption is implemented.
-- `[DOCUMENTED]` PWA packaging is implemented; Tauri, formal save slots/rollback, full chapters, audio, Live2D/WebM, and a complete Galgame asset set are later milestones.
-- `[VERIFIED]` Three new image variants succeeded; a fourth winter-conservatory generation hit the image service usage limit and is not referenced.
-- `[NOT RUN]` Full 20-prompt judged evaluation, real QLoRA training, external distillation APIs, live large downloads, remote GitHub Actions, and a `main` merge.
+- `[UNKNOWN]` The user has not yet given a subjective verdict on the new rain-night UI, five variants, mature image, or revised Sydney voice.
+- `[VERIFIED]` `qwen3:8b` remains a general-purpose model; this prompt fix improves behavior but is not a Sydney-ZH fine-tune.
+- `[DOCUMENTED]` Browser cancellation still stops waiting in the UI but cannot cancel an already-running non-streaming Ollama request. Streaming and real backend cancellation remain future work.
+- `[DOCUMENTED]` History now covers more short turns but has no durable rolling summary or structured user-fact memory.
+- `[DOCUMENTED]` Existing saved conversations still contain the old formulaic replies. Start a new conversation after exporting the old archive when judging the new persona.
+- `[DOCUMENTED]` Browser saves and exported JSON remain plaintext for the same Windows/browser account.
+- `[NOT RUN]` Full 20-prompt judged evaluation, real QLoRA training, remote GitHub Actions, audio/Live2D/WebM, desktop packaging, and a `main` merge.
 
 ## Next three actions
 
-1. User tests the open Moon Window page: Chinese conversation, four scene controls, story/free-chat switch, save export, and character/visual taste.
-2. Address subjective feedback; then expand the vertical slice with deterministic node text, `affinity/trust/boundaries`, checkpoints, and the next image batch when capacity returns.
-3. If accepted, merge the integration branch into `main`; otherwise keep `main` unchanged and iterate here.
+1. User exports the existing archive if needed, starts a new conversation, and tests the revised Chinese voice plus all four ordinary visual states.
+2. Collect the user's subjective notes; tune mood rules, phone glass opacity, character framing and intimate unlock pacing without changing the locked theme identity.
+3. Implement streaming/real cancellation and structured long-term memory, then run the 20-prompt dialogue quality evaluation before considering `main` merge.
 
 ## Exact resume point
 
-Run `Sydney-Experience\launch_sydney_app.bat`, open `http://127.0.0.1:32123/`, and begin with the user's visual/character acceptance checklist. Do not merge `main` until that verdict is recorded.
+Open `http://127.0.0.1:32123/`, export the old archive if it matters, select “新会话”, and run the specificity/correction checks in `research/DIALOGUE_QUALITY_AUDIT.md`. Do not merge `main` until the user's visual and dialogue verdict is recorded.

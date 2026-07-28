@@ -1,9 +1,9 @@
 # Project Context
 
-- Last verified: 2026-07-28
-- Verified against branch: `codex/claude-recovery-integration` at implementation commit `12b72ae` plus live local validation
+- Last verified: 2026-07-29
+- Verified against branch: `codex/claude-recovery-integration` at implementation commit `677757c` plus live local validation
 - Scope: build a local-first Chinese conversational character game inspired by early Sydney, then evolve it into an original Galgame
-- Known gaps: newest UI/character art awaits subjective acceptance; Sydney-ZH training, full chapters, formal rollback, audio, and desktop packaging are not complete
+- Known gaps: immersive v2 UI/character art and revised voice await subjective acceptance; Sydney-ZH training, streaming cancellation, durable memory, full chapters, formal rollback, audio, and desktop packaging are not complete
 
 ## Purpose
 
@@ -25,10 +25,11 @@
 - `training/`: runnable pipeline — `data/` (Claude-authored bilingual seed set, distillation & cleaning scripts, dataset registry), `prompts/` (generator & judge specs), `configs/` (LLaMA-Factory QLoRA), `eval/` (20-prompt fidelity suite against the local koboldcpp API).
 - `.context/`: PCB recovery, requirements, and durable decisions.
 - `Sydney-Experience/app/server.py`: loopback-only Python standard-library app server and guarded local-model proxy.
-- `Sydney-Experience/app/public/`: build-free PWA with story/chat layouts, local saves, settings, and scene controls.
+- `Sydney-Experience/app/public/`: build-free PWA with full-window environment, phone chat drawer, story/chat modes, local saves, settings, visual state machine, and motion controls.
 - `Sydney-Experience/app/content/`: versioned prologue graph, story schema, and scene manifest.
-- `Sydney-Experience/app/assets/`: four original adult character-scene masters and optimized WebP assets.
-- Ollama `qwen3:8b`: optional local Chinese route; Free Sydney V2 remains the English/personality route.
+- `Sydney-Experience/app/assets/`: legacy four-scene pack plus the active five-state rain-night adult Sydney masters and optimized WebP assets.
+- Ollama `qwen3:8b`: daily Chinese-first route with dynamic relationship/story context and English fallback; Free Sydney V2 remains the optional dedicated English/personality route.
+- `research/DIALOGUE_QUALITY_AUDIT.md`: verified formulaic-response diagnosis, fixes, golden regression set, and remaining memory/cancellation work.
 - `research/GALGAME_PRODUCT_ROADMAP.md` and `research/UI_VISUAL_DIRECTION.md`: product, save/rollback, asset, and visual plans.
 
 After the model download completes, chat inference is fully local and does not require the Microsoft Bing/Copilot service.
