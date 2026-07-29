@@ -1,6 +1,10 @@
 "use strict";
 
 const STORAGE_KEY = "moon-window-save-v1";
+const SAVE_VERSION = 2;
+const MAX_MEMORIES = 24;
+const MAX_MEMORY_CHARS = 240;
+const MAX_MEMORY_TOTAL_CHARS = 2000;
 const DEFAULT_SETTINGS = {
   chinesePreferred: true,
   matureVisuals: false,
@@ -24,6 +28,7 @@ const ui = {
   quickPrompts: document.querySelector("#quickPrompts"),
   form: document.querySelector("#composerForm"),
   input: document.querySelector("#composerInput"),
+  rememberDraft: document.querySelector("#rememberDraft"),
   charCount: document.querySelector("#charCount"),
   sendButton: document.querySelector("#sendButton"),
   stopButton: document.querySelector("#stopButton"),
@@ -50,6 +55,9 @@ const ui = {
   importInput: document.querySelector("#importInput"),
   importButton: document.querySelector("#importButton"),
   clearDataButton: document.querySelector("#clearDataButton"),
+  memoryList: document.querySelector("#memoryList"),
+  memoryCount: document.querySelector("#memoryCount"),
+  clearMemoriesButton: document.querySelector("#clearMemoriesButton"),
   storyButton: document.querySelector("#storyButton"),
   installButton: document.querySelector("#installButton"),
   toast: document.querySelector("#toast")
@@ -66,11 +74,27 @@ let activePortraitLayer = 0;
 let sceneRotationPaused = false;
 let sceneSwapToken = 0;
 let lastSceneNode = null;
+let activeStreamMessageId = null;
+
+const DELIVERY_STATUS_LABELS = {
+  streaming: "正在回复",
+  stopped: "已停止",
+  timedOut: "生成超时",
+  failed: "生成中断"
+};
+
+class StreamUnavailableError extends Error {
+  constructor(message = "当前服务不支持流式回复") {
+    super(message);
+    this.name = "StreamUnavailableError";
+  }
+}
 
 function freshState() {
   return {
-    version: 1,
+    version: SAVE_VERSION,
     messages: [],
+    memories: [],
     affinity: 12,
     trust: 0,
     flags: [],
@@ -94,8 +118,35 @@ function clampNumber(value, minimum, maximum, fallback) {
   return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
 }
 
+function normalizeMemories(rawMemories) {
+  if (!Array.isArray(rawMemories)) return [];
+  const selected = [];
+  const seen = new Set();
+  let usedChars = 0;
+  for (const raw of rawMemories.slice(-256).reverse()) {
+    if (selected.length >= MAX_MEMORIES || !raw || typeof raw.content !== "string") continue;
+    const content = raw.content.trim().slice(0, MAX_MEMORY_CHARS);
+    const sourceMessageId = typeof raw.sourceMessageId === "string"
+      ? raw.sourceMessageId.slice(0, 160)
+      : "";
+    const dedupeKey = sourceMessageId || content;
+    if (!content || seen.has(dedupeKey) || usedChars + content.length > MAX_MEMORY_TOTAL_CHARS) continue;
+    selected.push({
+      id: typeof raw.id === "string" && raw.id
+        ? raw.id.slice(0, 160)
+        : crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      content,
+      createdAt: Number.isNaN(Date.parse(raw.createdAt)) ? new Date().toISOString() : raw.createdAt,
+      sourceMessageId
+    });
+    seen.add(dedupeKey);
+    usedChars += content.length;
+  }
+  return selected.reverse();
+}
+
 function normalizeState(raw) {
-  if (!raw || raw.version !== 1 || !Array.isArray(raw.messages)) return freshState();
+  if (!raw || ![1, SAVE_VERSION].includes(raw.version) || !Array.isArray(raw.messages)) return freshState();
   const messages = raw.messages
     .slice(-80)
     .filter((message) => message && ["user", "assistant", "error"].includes(message.role))
@@ -106,7 +157,12 @@ function normalizeState(raw) {
       content: message.content.trim().slice(0, 12000),
       timestamp: Number.isNaN(Date.parse(message.timestamp)) ? new Date().toISOString() : message.timestamp,
       languageFallback: Boolean(message.languageFallback),
-      backend: message.backend === "ollama" ? "ollama" : "koboldcpp"
+      backend: message.backend === "ollama" ? "ollama" : "koboldcpp",
+      deliveryStatus: message.deliveryStatus === "streaming"
+        ? "failed"
+        : ["stopped", "timedOut", "failed"].includes(message.deliveryStatus)
+          ? message.deliveryStatus
+          : "completed"
     }));
   const currentNode = raw.currentNode === null || typeof raw.currentNode === "string"
     ? raw.currentNode
@@ -114,8 +170,9 @@ function normalizeState(raw) {
   return {
     ...freshState(),
     ...raw,
-    version: 1,
+    version: SAVE_VERSION,
     messages,
+    memories: normalizeMemories(raw.memories),
     affinity: clampNumber(raw.affinity, 0, 100, 12),
     trust: clampNumber(raw.trust, 0, 100, 0),
     flags: Array.isArray(raw.flags)
@@ -232,13 +289,44 @@ function makeMessageElement(message) {
     route.textContent = "本地生成";
     meta.append(route);
   }
+  if (DELIVERY_STATUS_LABELS[message.deliveryStatus]) {
+    const status = document.createElement("span");
+    status.className = `generation-status is-${message.deliveryStatus}`;
+    status.textContent = DELIVERY_STATUS_LABELS[message.deliveryStatus];
+    meta.append(status);
+  }
+  if (isUser) {
+    const remembered = state.memories.some((memory) => memory.sourceMessageId === message.id);
+    const memoryButton = document.createElement("button");
+    memoryButton.type = "button";
+    memoryButton.className = "memory-toggle";
+    memoryButton.dataset.action = "toggle-memory";
+    memoryButton.dataset.messageId = message.id;
+    memoryButton.setAttribute("aria-pressed", String(remembered));
+    memoryButton.setAttribute("aria-label", remembered ? "取消记住这条消息" : "把这条消息加入长期记忆");
+    memoryButton.textContent = remembered ? "已记住" : "记住";
+    meta.append(memoryButton);
+  }
 
   const content = document.createElement("div");
   content.className = "message-content";
   appendFormattedContent(content, message.content);
   body.append(meta, content);
   wrapper.append(body);
+  if (message.deliveryStatus && message.deliveryStatus !== "completed") {
+    wrapper.classList.add(`is-${message.deliveryStatus}`);
+  }
   return wrapper;
+}
+
+function refreshRenderedMessage(message, { scroll = false } = {}) {
+  document.querySelector("#typingMessage")?.remove();
+  const existing = [...ui.messages.querySelectorAll(".message")]
+    .find((element) => element.dataset.messageId === message.id);
+  const replacement = makeMessageElement(message);
+  if (existing) existing.replaceWith(replacement);
+  else ui.messages.append(replacement);
+  if (scroll) requestAnimationFrame(() => ui.messages.scrollTo({ top: ui.messages.scrollHeight }));
 }
 
 function typingElement() {
@@ -263,7 +351,7 @@ function renderMessages({ scroll = false, reset = false } = {}) {
     rendered = [];
   }
   state.messages.slice(rendered.length).forEach((message) => ui.messages.append(makeMessageElement(message)));
-  if (isSending) ui.messages.append(typingElement());
+  if (isSending && !activeStreamMessageId) ui.messages.append(typingElement());
   const turns = state.messages.filter((message) => message.role === "assistant").length;
   ui.turnCount.textContent = String(turns);
   ui.quickPrompts.hidden = state.messages.filter((message) => message.role === "user").length > 2;
@@ -496,15 +584,95 @@ function renderAll(options) {
 }
 
 function addMessage(role, content, extras = {}) {
-  state.messages.push({
+  const message = {
     id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     role,
     content: content.trim(),
     timestamp: new Date().toISOString(),
     ...extras
-  });
+  };
+  state.messages.push(message);
   if (state.messages.length > 80) state.messages = state.messages.slice(-80);
   saveState();
+  return message;
+}
+
+function rememberMessage(message, { quiet = false } = {}) {
+  if (!message || message.role !== "user") return false;
+  if (state.memories.some((memory) => memory.sourceMessageId === message.id)) return true;
+  if (message.content.length > MAX_MEMORY_CHARS) {
+    if (!quiet) showToast(`这条消息超过 ${MAX_MEMORY_CHARS} 字，请另发一条更简洁的事实再标记。`);
+    return false;
+  }
+  if (state.memories.length >= MAX_MEMORIES) {
+    if (!quiet) showToast(`长期记忆已满（${MAX_MEMORIES} 条），请先在设置中删除一条。`);
+    return false;
+  }
+  const usedChars = state.memories.reduce((sum, memory) => sum + memory.content.length, 0);
+  if (usedChars + message.content.length > MAX_MEMORY_TOTAL_CHARS) {
+    if (!quiet) showToast("长期记忆文字已达上限，请先在设置中删减。 ");
+    return false;
+  }
+  state.memories.push({
+    id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    content: message.content,
+    createdAt: new Date().toISOString(),
+    sourceMessageId: message.id
+  });
+  saveState();
+  if (!quiet) showToast("已加入长期记忆；你随时可以在设置中查看或删除。 ");
+  return true;
+}
+
+function forgetMemory(memoryId) {
+  const previousLength = state.memories.length;
+  state.memories = state.memories.filter((memory) => memory.id !== memoryId);
+  if (state.memories.length === previousLength) return false;
+  saveState();
+  renderMemorySettings();
+  renderMessages({ reset: true });
+  return true;
+}
+
+function toggleMemoryForMessage(messageId) {
+  const existing = state.memories.find((memory) => memory.sourceMessageId === messageId);
+  if (existing) {
+    forgetMemory(existing.id);
+    showToast("已从长期记忆中移除。 ");
+    return;
+  }
+  const message = state.messages.find((candidate) => candidate.id === messageId && candidate.role === "user");
+  if (rememberMessage(message)) {
+    refreshRenderedMessage(message);
+    renderMemorySettings();
+  }
+}
+
+function renderMemorySettings() {
+  if (!ui.memoryList || !ui.memoryCount) return;
+  ui.memoryCount.textContent = `${state.memories.length} / ${MAX_MEMORIES}`;
+  ui.memoryList.replaceChildren();
+  ui.clearMemoriesButton.disabled = state.memories.length === 0;
+  if (!state.memories.length) {
+    const empty = document.createElement("p");
+    empty.className = "memory-empty";
+    empty.textContent = "还没有长期记忆。只有你明确标记的用户消息会出现在这里。";
+    ui.memoryList.append(empty);
+    return;
+  }
+  for (const memory of [...state.memories].reverse()) {
+    const item = document.createElement("article");
+    item.className = "memory-item";
+    const content = document.createElement("p");
+    content.textContent = memory.content;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.dataset.memoryId = memory.id;
+    remove.setAttribute("aria-label", `删除长期记忆：${memory.content.slice(0, 40)}`);
+    remove.textContent = "删除";
+    item.append(content, remove);
+    ui.memoryList.append(item);
+  }
 }
 
 function applyEffects(effects = {}) {
@@ -527,13 +695,189 @@ async function selectChoice(choice) {
   renderAll({ scroll: true });
 }
 
+function metadataFromStreamEvent(event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  const backend = event.backend ?? data.backend;
+  const hasLanguageFallback = Object.hasOwn(event, "languageFallback")
+    || Object.hasOwn(data, "languageFallback");
+  return {
+    ...(backend ? { backend } : {}),
+    ...(hasLanguageFallback
+      ? { languageFallback: Boolean(event.languageFallback ?? data.languageFallback) }
+      : {})
+  };
+}
+
+function mergeReplyMetadata(target, event) {
+  const metadata = metadataFromStreamEvent(event);
+  if (metadata.backend) target.backend = metadata.backend;
+  if (Object.hasOwn(metadata, "languageFallback")) {
+    target.languageFallback = metadata.languageFallback;
+  }
+}
+
+function updateStreamingMessage(content, metadata, status = "streaming") {
+  const cleanContent = String(content || "").trimStart();
+  if (!cleanContent) return null;
+  let message = state.messages.find((candidate) => candidate.id === activeStreamMessageId);
+  if (!message) {
+    message = addMessage("assistant", cleanContent, {
+      deliveryStatus: status,
+      languageFallback: Boolean(metadata.languageFallback),
+      backend: metadata.backend
+    });
+    activeStreamMessageId = message.id;
+  } else {
+    message.content = cleanContent;
+    message.deliveryStatus = status;
+    message.languageFallback = Boolean(metadata.languageFallback);
+    if (metadata.backend) message.backend = metadata.backend;
+  }
+  refreshRenderedMessage(message, { scroll: true });
+  return message;
+}
+
+function finishStreamingMessage(content, metadata) {
+  const message = updateStreamingMessage(String(content || "").trim(), metadata, "completed");
+  if (!message) throw new Error("模型没有返回可显示的内容。");
+  message.deliveryStatus = "completed";
+  message.languageFallback = Boolean(metadata.languageFallback);
+  if (metadata.backend) message.backend = metadata.backend;
+  activeStreamMessageId = null;
+  saveState();
+  refreshRenderedMessage(message, { scroll: true });
+  return message;
+}
+
+function interruptStreamingMessage(status) {
+  const message = state.messages.find((candidate) => candidate.id === activeStreamMessageId);
+  activeStreamMessageId = null;
+  if (!message) return false;
+  message.content = message.content.trimEnd();
+  message.deliveryStatus = status;
+  saveState();
+  refreshRenderedMessage(message, { scroll: true });
+  return true;
+}
+
+function streamEventType(event) {
+  const explicit = event?.type ?? event?.event;
+  if (typeof explicit === "string") return explicit.toLowerCase();
+  if (typeof event?.delta === "string") return "delta";
+  if (typeof event?.reply === "string") return "done";
+  return "";
+}
+
+function streamErrorMessage(event) {
+  const detail = event?.error ?? event?.message ?? event?.data?.error ?? event?.data?.message;
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (detail && typeof detail.message === "string") return detail.message;
+  return "本地模型生成失败。";
+}
+
+async function requestStreamingReply(payload, signal, handlers) {
+  if (typeof ReadableStream === "undefined" || typeof TextDecoder === "undefined") {
+    throw new StreamUnavailableError("当前浏览器不支持流式回复");
+  }
+  const response = await fetch("/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson" },
+    body: JSON.stringify(payload),
+    signal
+  });
+  if ([404, 405, 501].includes(response.status)) {
+    throw new StreamUnavailableError();
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `请求失败（${response.status}）`);
+  }
+  const contentType = response.headers.get("Content-Type") || "";
+  if (!contentType.toLowerCase().includes("application/x-ndjson")) {
+    throw new StreamUnavailableError("当前服务返回了非流式响应");
+  }
+  if (!response.body || typeof response.body.getReader !== "function") {
+    throw new StreamUnavailableError("当前浏览器无法读取流式回复");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sawEvent = false;
+  let doneEvent = null;
+
+  const consumeLine = (line) => {
+    const cleanLine = line.trim();
+    if (!cleanLine) return;
+    let event;
+    try {
+      event = JSON.parse(cleanLine);
+    } catch {
+      throw new Error("流式响应格式错误。");
+    }
+    const type = streamEventType(event);
+    if (!type) return;
+    sawEvent = true;
+    if (type === "meta") handlers.onMeta(event);
+    else if (type === "delta") {
+      const delta = event.delta ?? event.text ?? event.content
+        ?? (typeof event.data === "string" ? event.data : "");
+      if (typeof delta === "string" && delta) handlers.onDelta(delta, event);
+    } else if (type === "done") {
+      doneEvent = event;
+    } else if (type === "error") {
+      throw new Error(streamErrorMessage(event));
+    }
+  };
+
+  try {
+    while (!doneEvent) {
+      const { value, done } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        if (buffer.trim()) consumeLine(buffer);
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        consumeLine(line);
+        if (doneEvent) break;
+      }
+    }
+  } finally {
+    try { await reader.cancel(); } catch {}
+    reader.releaseLock();
+  }
+
+  if (!sawEvent) throw new Error("本地服务没有返回有效的流式事件。");
+  if (!doneEvent) throw new Error("流式回复意外中断。");
+  return doneEvent;
+}
+
+async function requestCompatibleReply(payload, signal) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+  return data;
+}
+
 async function sendMessage(rawText) {
   const text = String(rawText ?? ui.input.value).trim();
   if (!text || isSending) return;
 
-  addMessage("user", text);
+  const rememberDraft = Boolean(ui.rememberDraft?.checked);
+  const userMessage = addMessage("user", text);
+  if (rememberDraft) rememberMessage(userMessage);
   state.affinity = Math.min(100, state.affinity + 1);
   ui.input.value = "";
+  if (ui.rememberDraft) ui.rememberDraft.checked = false;
   resizeComposer();
   isSending = true;
   ui.sendButton.disabled = true;
@@ -542,47 +886,76 @@ async function sendMessage(rawText) {
   applyVisualMood("attentive");
 
   const messages = state.messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
+    .filter((message) => message.role === "user"
+      || (message.role === "assistant"
+        && !["stopped", "timedOut", "failed", "streaming"].includes(message.deliveryStatus)))
     .slice(-24)
     .map(({ role, content }) => ({ role, content }));
 
+  const payload = {
+    messages,
+    memories: state.memories.map(({ id, content }) => ({ id, content })),
+    settings: state.settings,
+    conversationContext: conversationContext()
+  };
+
   let succeeded = false;
   let timedOut = false;
+  let streamedText = "";
+  const replyMetadata = { languageFallback: false };
   activeRequestController = new AbortController();
   const timeout = setTimeout(() => {
     timedOut = true;
     activeRequestController?.abort();
   }, 120000);
   try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages,
-        settings: state.settings,
-        conversationContext: conversationContext()
-      }),
-      signal: activeRequestController.signal
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
-    addMessage("assistant", data.reply, {
-      languageFallback: Boolean(data.languageFallback),
-      backend: data.backend || "koboldcpp"
-    });
-    applyVisualMood(deriveMoodFromTurn(text, data.reply));
+    let finalReply = "";
+    try {
+      const done = await requestStreamingReply(payload, activeRequestController.signal, {
+        onMeta(event) {
+          mergeReplyMetadata(replyMetadata, event);
+          const message = state.messages.find((candidate) => candidate.id === activeStreamMessageId);
+          if (message) updateStreamingMessage(streamedText, replyMetadata);
+        },
+        onDelta(delta, event) {
+          mergeReplyMetadata(replyMetadata, event);
+          streamedText += delta;
+          updateStreamingMessage(streamedText, replyMetadata);
+        }
+      });
+      mergeReplyMetadata(replyMetadata, done);
+      const doneData = done.data && typeof done.data === "object" ? done.data : {};
+      finalReply = done.reply ?? done.text ?? doneData.reply ?? doneData.text ?? streamedText;
+    } catch (error) {
+      if (!(error instanceof StreamUnavailableError)) throw error;
+      showToast("当前服务暂不支持流式输出，已切换到兼容模式。");
+      const data = await requestCompatibleReply(payload, activeRequestController.signal);
+      mergeReplyMetadata(replyMetadata, data);
+      replyMetadata.backend ||= data.backend || "koboldcpp";
+      finalReply = data.reply;
+    }
+
+    const replyMessage = finishStreamingMessage(finalReply, replyMetadata);
+    applyVisualMood(deriveMoodFromTurn(text, replyMessage.content));
     succeeded = true;
     state.affinity = Math.min(100, state.affinity + 1);
-    if (data.languageFallback) showToast("模型仍有中文底座限制；这条回复已自动重试。后续训练版会继续改善。");
+    if (replyMetadata.languageFallback) showToast("模型仍有中文底座限制；这条回复已自动重试。后续训练版会继续改善。");
   } catch (error) {
     if (error.name === "AbortError") {
-      showToast(timedOut ? "等待超过 120 秒，已经停止等待。" : "已经停止等待这次回复。");
+      const keptPartial = interruptStreamingMessage(timedOut ? "timedOut" : "stopped");
+      showToast(timedOut
+        ? keptPartial ? "等待超过 120 秒，已停止生成并保留已有内容。" : "等待超过 120 秒，已经停止生成。"
+        : keptPartial ? "已停止生成，已有内容保留在对话中。" : "已经停止这次回复。");
     } else {
-      addMessage("error", `${error.message} 请确认本地模型服务已经运行，然后再试一次。`);
-      showToast("没有接通本地模型，消息已保留。 ");
+      const keptPartial = interruptStreamingMessage("failed");
+      if (!keptPartial) {
+        addMessage("error", `${error.message} 请确认本地模型服务已经运行，然后再试一次。`);
+      }
+      showToast(keptPartial ? `回复生成中断：${error.message}` : "没有接通本地模型，消息已保留。 ");
     }
   } finally {
     clearTimeout(timeout);
+    activeStreamMessageId = null;
     activeRequestController = null;
     isSending = false;
     ui.sendButton.disabled = false;
@@ -626,6 +999,7 @@ function openSettings() {
   ui.temperatureValue.textContent = Number(state.settings.temperature).toFixed(2);
   ui.maxLength.value = state.settings.maxLength;
   ui.maxLengthValue.textContent = String(state.settings.maxLength);
+  renderMemorySettings();
   ui.settingsDialog.showModal();
 }
 
@@ -644,6 +1018,7 @@ function saveSettings() {
 function exportArchive() {
   const payload = {
     format: "moon-window-save",
+    schemaVersion: SAVE_VERSION,
     exportedAt: new Date().toISOString(),
     state
   };
@@ -661,7 +1036,10 @@ async function importArchive(file) {
   try {
     const payload = JSON.parse(await file.text());
     const imported = payload?.format === "moon-window-save" ? payload.state : payload;
-    if (!imported || imported.version !== 1 || !Array.isArray(imported.messages)) {
+    if (imported && Number(imported.version) > SAVE_VERSION) {
+      throw new Error(`这个存档来自更新版本（v${imported.version}），请先更新月窗`);
+    }
+    if (!imported || ![1, SAVE_VERSION].includes(imported.version) || !Array.isArray(imported.messages)) {
       throw new Error("不是有效的月窗存档");
     }
     state = normalizeState(imported);
@@ -680,9 +1058,11 @@ function startNewChat() {
   if (state.messages.length && !window.confirm("开启新会话？当前记录仍可先用“存档”导出。")) return;
   const settings = state.settings;
   const affinity = state.affinity;
+  const memories = state.memories.map((memory) => ({ ...memory }));
   state = freshState();
   state.settings = settings;
   state.affinity = affinity;
+  state.memories = memories;
   seedPrologue();
   saveState();
   renderAll({ scroll: true, reset: true });
@@ -698,6 +1078,16 @@ function clearAllData() {
   renderAll({ scroll: true, reset: true });
   ui.settingsDialog.close();
   showToast("本地月窗数据已清除。 ");
+}
+
+function clearMemories() {
+  if (!state.memories.length) return;
+  if (!window.confirm("清空全部长期记忆？对话记录仍会保留，此操作无法撤销。")) return;
+  state.memories = [];
+  saveState();
+  renderMemorySettings();
+  renderMessages({ reset: true });
+  showToast("长期记忆已清空。 ");
 }
 
 function seedPrologue() {
@@ -748,6 +1138,11 @@ ui.quickPrompts.addEventListener("click", (event) => {
   if (button) sendMessage(button.dataset.prompt);
 });
 
+ui.messages.addEventListener("click", (event) => {
+  const button = event.target.closest('button[data-action="toggle-memory"]');
+  if (button) toggleMemoryForMessage(button.dataset.messageId);
+});
+
 ui.settingsButton.addEventListener("click", openSettings);
 ui.closeSettingsButton.addEventListener("click", () => ui.settingsDialog.close());
 ui.settingsForm.addEventListener("submit", saveSettings);
@@ -761,6 +1156,11 @@ ui.newChatButton.addEventListener("click", startNewChat);
 ui.archiveButton.addEventListener("click", exportArchive);
 ui.importButton.addEventListener("click", () => ui.importInput.click());
 ui.clearDataButton.addEventListener("click", clearAllData);
+ui.clearMemoriesButton.addEventListener("click", clearMemories);
+ui.memoryList.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-memory-id]");
+  if (button && forgetMemory(button.dataset.memoryId)) showToast("已删除这条长期记忆。 ");
+});
 ui.stopButton.addEventListener("click", () => activeRequestController?.abort());
 ui.previousSceneButton.addEventListener("click", () => stepScene(-1));
 ui.nextSceneButton.addEventListener("click", () => stepScene(1));

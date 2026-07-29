@@ -27,6 +27,6 @@
 | REQ-020 | Implemented | [VERIFIED] | Replace the framed split layout with a full-environment composition, Sydney on the left and a phone-like chat interface on the right. | User feedback 2026-07-29; browser QA at desktop/mobile sizes |
 | REQ-021 | Implemented | [VERIFIED] | Provide one coherent visual set with expression/pose differences, semantic transitions, environmental motion and a gated mature intimate image. | Five rain-night assets; visual state machine; story unlock; browser QA |
 | REQ-022 | Implemented | [VERIFIED] | Research well-regarded dialogue games and production approaches for layered images, motion, state models and validation. | `research/UI_VISUAL_DIRECTION.md`; official product/engine documentation |
-| REQ-023 | Accepted | [DOCUMENTED] | Add streaming with real cancellation and durable structured user memory after this vertical slice is accepted. | Dialogue audit; current non-streaming/history limitations |
+| REQ-023 | Implemented | [VERIFIED] | Add streaming with real cancellation and durable structured user memory after this vertical slice is accepted. | NDJSON Ollama stream; upstream disconnect test; v2 explicit-memory save/UI; 20 server tests; real browser probes |
 
 Allowed statuses: `Implemented`, `Accepted`, `Candidate`, `Deferred`, `Rejected`, `Unknown`.

@@ -1,4 +1,4 @@
-const CACHE_NAME = "moon-window-v6";
+const CACHE_NAME = "moon-window-v7";
 const APP_SHELL = [
   "/",
   "/styles.css",

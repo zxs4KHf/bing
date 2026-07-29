@@ -125,6 +125,11 @@
             placeholder="在月窗里说点什么…"
             autocomplete="off"
           ></textarea>
+          <label class="remember-draft">
+            <input id="rememberDraft" type="checkbox">
+            <span aria-hidden="true">◇</span>
+            <strong>把这句话记到长期记忆</strong>
+          </label>
           <div class="composer-footer">
             <span class="local-note"><i aria-hidden="true">⌁</i> 对话仅在本机处理</span>
             <div class="send-group">
@@ -173,13 +178,25 @@
           <small>较长回复会花费更多生成时间。</small>
         </label>
 
+        <section class="memory-settings" aria-labelledby="memorySettingsTitle">
+          <div class="memory-settings-heading">
+            <div>
+              <strong id="memorySettingsTitle">长期记忆</strong>
+              <small>只有你明确标记的消息会保留到新会话；Sydney 不会自动猜测。</small>
+            </div>
+            <span id="memoryCount">0 / 24</span>
+          </div>
+          <div class="memory-list" id="memoryList"></div>
+          <button class="memory-clear" id="clearMemoriesButton" type="button">清空长期记忆</button>
+        </section>
+
         <div class="settings-actions">
           <button class="secondary-action" id="importButton" type="button">导入存档</button>
           <input id="importInput" type="file" accept="application/json,.json" hidden>
           <button class="primary-action" id="saveSettingsButton" value="default">保存设置</button>
         </div>
         <div class="privacy-panel">
-          <p><strong>本地数据说明</strong>同一 Windows 与浏览器账户中的其他本机程序或用户可能读取未加密存档。请勿输入密码、密钥或高度敏感信息。</p>
+          <p><strong>本地数据说明</strong>对话与长期记忆会以明文写入本机存档和导出文件；同一 Windows 与浏览器账户中的其他本机程序或用户可能读取。请勿输入密码、密钥或高度敏感信息。</p>
           <button class="danger-action" id="clearDataButton" type="button">清除全部对话与关系数据</button>
         </div>
         <p class="independence-note">独立开源实验，不是 Microsoft 或 Bing 官方产品。角色与界面均为原创设计。</p>
